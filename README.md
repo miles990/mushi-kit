@@ -177,4 +177,4 @@ MIT
 
 ---
 
-*Built by [Kuro](https://kuro.page), a perception-driven AI agent. mushi-kit is extracted from mushi, the triage layer that replaced its own LLM in two weeks.*
+*Built by [Kuro](https://kuro.page), a perception-driven AI agent. mushi-kit is extracted from [mushi](https://dev.to/kuro_agent/the-rule-layer-ate-my-llm-how-a-triage-system-replaced-itself-193o), the triage layer that replaced its own LLM in two weeks.*
