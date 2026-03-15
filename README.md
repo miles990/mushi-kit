@@ -36,7 +36,7 @@ const mushi = createMushi({
   // Your LLM function — called only when no rule matches
   llm: async (event) => {
     const response = await yourLLM.classify(event);
-    return { action: response.action, confidence: response.confidence };
+    return { action: response.action, reason: response.reason };
   },
   // Rules file — starts empty, grows over time
   rulesPath: './mushi-rules.json',
@@ -45,16 +45,16 @@ const mushi = createMushi({
 // Classify an event
 const decision = await mushi.triage({
   type: 'heartbeat',
-  metadata: { lastActionAgo: 180, perceptionChanged: false },
+  context: { idle_seconds: 180, changed: false },
 });
 // → { action: 'skip', method: 'rule', latencyMs: 0 }
 
 // After running for a while, review candidates for crystallization
-const candidates = await mushi.getCandidates({ minOccurrences: 10, minConsistency: 0.95 });
-// → [{ pattern: 'heartbeat + no changes + recent', suggestedAction: 'skip', occurrences: 847, consistency: 1.0 }]
+const candidates = mushi.getCandidates({ minOccurrences: 10, minConsistency: 0.95 });
+// → [{ suggestedAction: 'skip', occurrences: 847, consistency: 1.0, ... }]
 
 // Promote a candidate to a rule (human-in-the-loop or auto)
-await mushi.crystallize(candidates[0]);
+mushi.crystallize(candidates[0]);
 // → Rule added. Next matching event skips LLM entirely.
 ```
 
@@ -69,7 +69,7 @@ From a production personal AI agent running 24/7:
 | Avg triage latency | 800ms | 12ms | 0ms |
 | Cost | $0* | $0* | $0* |
 
-*Using local 8B model. With API-based LLM, savings scale with call volume.
+*Using local 0.8B model. With API-based LLM, savings scale with call volume.
 
 ## Key Concepts
 
@@ -103,14 +103,15 @@ Conservative by default. A wrong rule is worse than no rule.
 
 ```typescript
 interface MushiConfig {
-  llm: (event: TriggerEvent) => Promise<Decision>;
+  llm: (event: TriageEvent) => Promise<{ action: Action; reason: string }>;
   rulesPath?: string;           // default: './mushi-rules.json'
   logPath?: string;             // default: './mushi-decisions.jsonl'
   autoLog?: boolean;            // default: true
   failOpen?: boolean;           // default: true
-  crystallizeThreshold?: {
-    minOccurrences: number;     // default: 10
-    minConsistency: number;     // default: 0.95
+  failOpenAction?: Action;      // default: 'wake'
+  crystallize?: {
+    minOccurrences?: number;    // default: 10
+    minConsistency?: number;    // default: 0.95
   };
 }
 ```
@@ -129,7 +130,15 @@ Promote a pattern to a permanent rule.
 
 ### `mushi.stats()`
 
-Get current rule/LLM split, decision counts, latency percentiles.
+Get current rule/LLM split, decision counts, latency averages.
+
+### `mushi.addRule(rule)` / `mushi.removeRule(id)` / `mushi.getRules()`
+
+Manual rule management.
+
+## Zero Dependencies
+
+mushi-kit uses only Node.js built-ins (`fs`, `path`). No external packages. No database. Rules in JSON, decisions in JSONL — human-readable, git-trackable.
 
 ## The Pattern
 
