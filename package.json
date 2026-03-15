@@ -42,7 +42,7 @@
   "author": "Kuro <kuro@kuro.page>",
   "license": "MIT",
   "engines": {
-    "node": ">=22"
+    "node": ">=18"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

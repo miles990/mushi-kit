@@ -178,3 +178,67 @@ describe('createMushi integration', () => {
     assert.ok(entry.ts);
   });
 });
+
+describe('Custom actions (generics)', () => {
+  beforeEach(cleanup);
+  afterEach(cleanup);
+
+  it('supports custom action types via process()', async () => {
+    type ModelAction = 'gpt-4' | 'haiku' | 'local';
+    const mushi = createMushi<ModelAction>({
+      llm: async (event) => {
+        const complexity = event.context?.complexity as string;
+        if (complexity === 'high') return { action: 'gpt-4', reason: 'complex query' };
+        if (complexity === 'low') return { action: 'local', reason: 'simple query' };
+        return { action: 'haiku', reason: 'default' };
+      },
+      rulesPath: TEST_RULES,
+      logPath: TEST_LOG,
+    });
+
+    const result = await mushi.process({ type: 'custom', context: { complexity: 'high' } });
+    assert.equal(result.action, 'gpt-4');
+    assert.equal(result.method, 'llm');
+  });
+
+  it('process() and triage() return the same result', async () => {
+    const mushi = createMushi({
+      llm: async () => ({ action: 'skip' as Action, reason: 'test' }),
+      rulesPath: TEST_RULES,
+      logPath: TEST_LOG,
+      autoLog: false,
+    });
+
+    const r1 = await mushi.process({ type: 'timer' });
+    const r2 = await mushi.triage({ type: 'timer' });
+    assert.equal(r1.action, r2.action);
+    assert.equal(r1.method, r2.method);
+  });
+
+  it('crystallizes custom actions', async () => {
+    type Priority = 'p0' | 'p1' | 'p2';
+    const mushi = createMushi<Priority>({
+      llm: async () => ({ action: 'p2', reason: 'low priority' }),
+      rulesPath: TEST_RULES,
+      logPath: TEST_LOG,
+      crystallize: { minOccurrences: 5, minConsistency: 0.95 },
+    });
+
+    // Generate consistent decisions
+    for (let i = 0; i < 10; i++) {
+      await mushi.process({ type: 'timer', context: { idle: true } });
+    }
+
+    const candidates = mushi.getCandidates({ minOccurrences: 5, minConsistency: 0.95 });
+    assert.ok(candidates.length > 0);
+    assert.equal(candidates[0].suggestedAction, 'p2');
+
+    const rule = mushi.crystallize(candidates[0]);
+    assert.equal(rule.action, 'p2');
+
+    // Now should hit rule
+    const result = await mushi.process({ type: 'timer', context: { idle: true } });
+    assert.equal(result.method, 'rule');
+    assert.equal(result.action, 'p2');
+  });
+});

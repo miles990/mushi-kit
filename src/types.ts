@@ -7,8 +7,11 @@
 /** Standard event types */
 export type EventType = 'timer' | 'message' | 'change' | 'alert' | 'scheduled' | 'startup' | 'custom';
 
-/** Triage actions */
-export type Action = 'skip' | 'wake' | 'quick';
+/** Default triage actions (backward compatible) */
+export type DefaultAction = 'skip' | 'wake' | 'quick';
+
+/** Action type — defaults to skip/wake/quick, but can be any string via generics */
+export type Action = DefaultAction;
 
 /** How the decision was made */
 export type Method = 'rule' | 'llm' | 'error';
@@ -20,9 +23,9 @@ export interface TriageEvent {
   context?: Record<string, unknown>;
 }
 
-/** Result of a triage decision */
-export interface TriageResult {
-  action: Action;
+/** Result of a triage/process decision */
+export interface TriageResult<A extends string = DefaultAction> {
+  action: A;
   reason: string;
   method: Method;
   latencyMs: number;
@@ -30,10 +33,10 @@ export interface TriageResult {
 }
 
 /** A crystallized rule */
-export interface Rule {
+export interface Rule<A extends string = DefaultAction> {
   id: string;
   match: RuleMatch;
-  action: Action;
+  action: A;
   reason: string;
   createdAt: string;
   /** How many times this rule has been applied */
@@ -57,21 +60,21 @@ export type MatchCondition =
   | { pattern: string };                 // regex pattern
 
 /** A decision log entry for crystallization analysis */
-export interface DecisionLog {
+export interface DecisionLog<A extends string = DefaultAction> {
   ts: string;
   event: TriageEvent;
-  action: Action;
+  action: A;
   reason: string;
   method: Method;
   latencyMs: number;
 }
 
 /** A crystallization candidate — a pattern stable enough to become a rule */
-export interface CrystallizationCandidate {
+export interface CrystallizationCandidate<A extends string = DefaultAction> {
   /** Proposed rule match conditions */
   match: RuleMatch;
-  /** The action the LLM consistently chose */
-  suggestedAction: Action;
+  /** The action/output the LLM consistently chose */
+  suggestedAction: A;
   /** Human-readable description of the pattern */
   description: string;
   /** How many times this pattern was seen */
@@ -83,9 +86,9 @@ export interface CrystallizationCandidate {
 }
 
 /** Configuration for createMushi */
-export interface MushiConfig {
+export interface MushiConfig<A extends string = DefaultAction> {
   /** Your LLM function — called only when no rule matches */
-  llm: (event: TriageEvent) => Promise<{ action: Action; reason: string }>;
+  llm: (event: TriageEvent) => Promise<{ action: A; reason: string }>;
   /** Path to rules JSON file (default: './mushi-rules.json') */
   rulesPath?: string;
   /** Path to decision log JSONL file (default: './mushi-decisions.jsonl') */
@@ -95,7 +98,7 @@ export interface MushiConfig {
   /** Whether to fail-open on errors (default: true) */
   failOpen?: boolean;
   /** Default action when failing open (default: 'wake') */
-  failOpenAction?: Action;
+  failOpenAction?: A;
   /** Crystallization thresholds */
   crystallize?: {
     /** Minimum occurrences before a pattern is eligible (default: 10) */
@@ -106,19 +109,21 @@ export interface MushiConfig {
 }
 
 /** The mushi-kit instance */
-export interface Mushi {
-  /** Triage an event — returns a decision */
-  triage: (event: TriageEvent) => Promise<TriageResult>;
+export interface Mushi<A extends string = DefaultAction> {
+  /** Process an input — returns a decision (primary API) */
+  process: (event: TriageEvent) => Promise<TriageResult<A>>;
+  /** Triage an event — alias for process() (backward compatible) */
+  triage: (event: TriageEvent) => Promise<TriageResult<A>>;
   /** Find patterns stable enough to crystallize */
-  getCandidates: (opts?: { minOccurrences?: number; minConsistency?: number }) => CrystallizationCandidate[];
+  getCandidates: (opts?: { minOccurrences?: number; minConsistency?: number }) => CrystallizationCandidate<A>[];
   /** Promote a candidate to a permanent rule */
-  crystallize: (candidate: CrystallizationCandidate) => Rule;
+  crystallize: (candidate: CrystallizationCandidate<A>) => Rule<A>;
   /** Get current stats */
   stats: () => MushiStats;
   /** Get all current rules */
-  getRules: () => Rule[];
+  getRules: () => Rule<A>[];
   /** Add a rule manually */
-  addRule: (rule: Omit<Rule, 'id' | 'createdAt' | 'hitCount'>) => Rule;
+  addRule: (rule: Omit<Rule<A>, 'id' | 'createdAt' | 'hitCount'>) => Rule<A>;
   /** Remove a rule by ID */
   removeRule: (id: string) => boolean;
 }

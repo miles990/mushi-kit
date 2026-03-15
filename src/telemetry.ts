@@ -7,25 +7,25 @@
 
 import { appendFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { DecisionLog, TriageEvent, Action, Method } from './types.ts';
+import type { DecisionLog, TriageEvent, Method } from './types.ts';
 
 /** Append a decision to the log file */
 export function logDecision(
   path: string,
   event: TriageEvent,
-  action: Action,
+  action: string,
   reason: string,
   method: Method,
   latencyMs: number,
 ): void {
-  const entry: DecisionLog = {
+  const entry = {
     ts: new Date().toISOString(),
     event,
     action,
     reason,
     method,
     latencyMs,
-  };
+  } satisfies DecisionLog<string>;
 
   try {
     const dir = dirname(path);
@@ -37,7 +37,7 @@ export function logDecision(
 }
 
 /** Read all decision logs from a JSONL file */
-export function readDecisionLog(path: string): DecisionLog[] {
+export function readDecisionLog(path: string): DecisionLog<string>[] {
   if (!existsSync(path)) return [];
   try {
     const lines = readFileSync(path, 'utf-8').trim().split('\n');
@@ -50,6 +50,6 @@ export function readDecisionLog(path: string): DecisionLog[] {
 }
 
 /** Get only LLM decisions (these are candidates for crystallization) */
-export function getLlmDecisions(logs: DecisionLog[]): DecisionLog[] {
+export function getLlmDecisions(logs: DecisionLog<string>[]): DecisionLog<string>[] {
   return logs.filter(log => log.method === 'llm');
 }

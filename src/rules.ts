@@ -75,7 +75,7 @@ export function matchRule(event: TriageEvent, match: RuleMatch): boolean {
 }
 
 /** Find the first matching rule for an event */
-export function findMatchingRule(event: TriageEvent, rules: Rule[]): Rule | null {
+export function findMatchingRule<A extends string>(event: TriageEvent, rules: Rule<A>[]): Rule<A> | null {
   for (const rule of rules) {
     if (matchRule(event, rule.match)) {
       return rule;
@@ -97,7 +97,7 @@ export function loadRules(path: string): Rule[] {
 }
 
 /** Save rules to a JSON file */
-export function saveRules(path: string, rules: Rule[]): void {
+export function saveRules<A extends string>(path: string, rules: Rule<A>[]): void {
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(path, JSON.stringify(rules, null, 2), 'utf-8');

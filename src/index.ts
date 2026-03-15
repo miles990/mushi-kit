@@ -28,6 +28,8 @@ import type {
   TriageResult,
   Rule,
   Action,
+  DefaultAction,
+  DecisionLog,
   CrystallizationCandidate,
 } from './types.ts';
 import { findMatchingRule, loadRules, saveRules, generateRuleId } from './rules.ts';
@@ -43,6 +45,7 @@ export type {
   TriageResult,
   Rule,
   Action,
+  DefaultAction,
   CrystallizationCandidate,
   EventType,
   Method,
@@ -64,20 +67,34 @@ const DEFAULT_MIN_CONSISTENCY = 0.95;
 /**
  * Create a mushi-kit instance.
  *
- * mushi-kit watches your LLM's triage decisions and promotes stable patterns
+ * mushi-kit watches your LLM's decisions and promotes stable patterns
  * to zero-cost deterministic rules. Like adaptive immunity becoming innate.
+ *
+ * @example Default (triage) usage:
+ * ```typescript
+ * const mushi = createMushi({ llm: async (event) => ({ action: 'skip', reason: '...' }) });
+ * const result = await mushi.triage(event);
+ * ```
+ *
+ * @example Custom actions (e.g. model routing):
+ * ```typescript
+ * const mushi = createMushi<'gpt-4' | 'haiku' | 'local'>({
+ *   llm: async (event) => ({ action: 'haiku', reason: 'simple query' }),
+ * });
+ * const result = await mushi.process(event); // → { action: 'haiku', method: 'rule', ... }
+ * ```
  */
-export function createMushi(config: MushiConfig): Mushi {
+export function createMushi<A extends string = DefaultAction>(config: MushiConfig<A>): Mushi<A> {
   const rulesPath = config.rulesPath ?? DEFAULT_RULES_PATH;
   const logPath = config.logPath ?? DEFAULT_LOG_PATH;
   const autoLog = config.autoLog ?? true;
   const failOpen = config.failOpen ?? true;
-  const failOpenAction = config.failOpenAction ?? 'wake';
+  const failOpenAction = config.failOpenAction ?? ('wake' as A);
   const minOccurrences = config.crystallize?.minOccurrences ?? DEFAULT_MIN_OCCURRENCES;
   const minConsistency = config.crystallize?.minConsistency ?? DEFAULT_MIN_CONSISTENCY;
 
   // Load existing rules
-  let rules = loadRules(rulesPath);
+  let rules = loadRules(rulesPath) as Rule<A>[];
 
   // Stats tracking (in-memory, resets on restart)
   let totalDecisions = 0;
@@ -87,7 +104,7 @@ export function createMushi(config: MushiConfig): Mushi {
   let ruleLatencySum = 0;
   let llmLatencySum = 0;
 
-  async function triage(event: TriageEvent): Promise<TriageResult> {
+  async function triage(event: TriageEvent): Promise<TriageResult<A>> {
     const start = Date.now();
     totalDecisions++;
 
@@ -99,8 +116,8 @@ export function createMushi(config: MushiConfig): Mushi {
       ruleDecisions++;
       ruleLatencySum += latencyMs;
 
-      const result: TriageResult = {
-        action: matchedRule.action,
+      const result: TriageResult<A> = {
+        action: matchedRule.action as A,
         reason: matchedRule.reason,
         method: 'rule',
         latencyMs,
@@ -121,7 +138,7 @@ export function createMushi(config: MushiConfig): Mushi {
       llmDecisions++;
       llmLatencySum += latencyMs;
 
-      const result: TriageResult = {
+      const result: TriageResult<A> = {
         action: llmResult.action,
         reason: llmResult.reason,
         method: 'llm',
@@ -141,7 +158,7 @@ export function createMushi(config: MushiConfig): Mushi {
       if (!failOpen) throw err;
 
       const reason = `error: ${err instanceof Error ? err.message : 'unknown'} — fail-open to ${failOpenAction}`;
-      const result: TriageResult = {
+      const result: TriageResult<A> = {
         action: failOpenAction,
         reason,
         method: 'error',
@@ -156,15 +173,15 @@ export function createMushi(config: MushiConfig): Mushi {
     }
   }
 
-  function getCandidates(opts?: { minOccurrences?: number; minConsistency?: number }): CrystallizationCandidate[] {
+  function getCandidates(opts?: { minOccurrences?: number; minConsistency?: number }): CrystallizationCandidate<A>[] {
     const logs = readDecisionLog(logPath);
-    return findCandidates(logs, {
+    return findCandidates<A>(logs as DecisionLog<A>[], {
       minOccurrences: opts?.minOccurrences ?? minOccurrences,
       minConsistency: opts?.minConsistency ?? minConsistency,
     });
   }
 
-  function crystallize(candidate: CrystallizationCandidate): Rule {
+  function crystallize(candidate: CrystallizationCandidate<A>): Rule<A> {
     const rule = candidateToRule(candidate);
     rules.push(rule);
     saveRules(rulesPath, rules);
@@ -184,12 +201,12 @@ export function createMushi(config: MushiConfig): Mushi {
     };
   }
 
-  function getRules(): Rule[] {
+  function getRules(): Rule<A>[] {
     return [...rules];
   }
 
-  function addRule(partial: Omit<Rule, 'id' | 'createdAt' | 'hitCount'>): Rule {
-    const rule: Rule = {
+  function addRule(partial: Omit<Rule<A>, 'id' | 'createdAt' | 'hitCount'>): Rule<A> {
+    const rule: Rule<A> = {
       ...partial,
       id: generateRuleId(),
       createdAt: new Date().toISOString(),
@@ -209,6 +226,7 @@ export function createMushi(config: MushiConfig): Mushi {
   }
 
   return {
+    process: triage,
     triage,
     getCandidates,
     crystallize,

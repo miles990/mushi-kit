@@ -7,7 +7,7 @@
  * The LLM handles novel threats; rules handle everything it's seen before.
  */
 
-import type { DecisionLog, CrystallizationCandidate, Rule, RuleMatch, Action } from './types.ts';
+import type { DecisionLog, CrystallizationCandidate, Rule, RuleMatch } from './types.ts';
 import { generateRuleId } from './rules.ts';
 
 /**
@@ -17,7 +17,7 @@ import { generateRuleId } from './rules.ts';
  * We key on: event type + source + context keys (not values, since values vary).
  * For numeric context values, we bucket them into ranges.
  */
-function eventFingerprint(log: DecisionLog): string {
+function eventFingerprint(log: DecisionLog<string>): string {
   const parts: string[] = [log.event.type];
 
   if (log.event.source) {
@@ -56,7 +56,7 @@ function numericBucket(val: number): string {
 }
 
 /** Build a RuleMatch from a group of similar events */
-function buildMatchFromGroup(logs: DecisionLog[]): RuleMatch {
+function buildMatchFromGroup(logs: DecisionLog<string>[]): RuleMatch {
   const match: RuleMatch = {};
   const first = logs[0].event;
 
@@ -126,15 +126,15 @@ function numericUpperBound(val: number): number {
  * 1. It's been seen at least minOccurrences times
  * 2. The LLM returned the same action at least minConsistency% of the time
  */
-export function findCandidates(
-  logs: DecisionLog[],
+export function findCandidates<A extends string>(
+  logs: DecisionLog<A>[],
   opts: { minOccurrences: number; minConsistency: number },
-): CrystallizationCandidate[] {
+): CrystallizationCandidate<A>[] {
   // Only analyze LLM decisions (rules are already crystallized)
   const llmLogs = logs.filter(l => l.method === 'llm');
 
   // Group by fingerprint
-  const groups = new Map<string, DecisionLog[]>();
+  const groups = new Map<string, DecisionLog<A>[]>();
   for (const log of llmLogs) {
     const fp = eventFingerprint(log);
     const group = groups.get(fp) ?? [];
@@ -142,7 +142,7 @@ export function findCandidates(
     groups.set(fp, group);
   }
 
-  const candidates: CrystallizationCandidate[] = [];
+  const candidates: CrystallizationCandidate<A>[] = [];
 
   for (const [, group] of groups) {
     if (group.length < opts.minOccurrences) continue;
@@ -154,11 +154,11 @@ export function findCandidates(
     }
 
     // Find the dominant action
-    let dominantAction = 'wake' as Action;
+    let dominantAction: A = '' as A;
     let maxCount = 0;
     for (const [action, count] of actionCounts) {
       if (count > maxCount) {
-        dominantAction = action as Action;
+        dominantAction = action as A;
         maxCount = count;
       }
     }
@@ -190,7 +190,7 @@ export function findCandidates(
 }
 
 /** Generate a human-readable description of a match pattern */
-function describeMatch(match: RuleMatch, action: Action): string {
+function describeMatch(match: RuleMatch, action: string): string {
   const parts: string[] = [];
   if (match.type) parts.push(`type=${match.type}`);
   if (match.source) parts.push(`source=${match.source}`);
@@ -213,7 +213,7 @@ function describeMatch(match: RuleMatch, action: Action): string {
 }
 
 /** Promote a candidate to a rule */
-export function candidateToRule(candidate: CrystallizationCandidate): Rule {
+export function candidateToRule<A extends string>(candidate: CrystallizationCandidate<A>): Rule<A> {
   return {
     id: generateRuleId(),
     match: candidate.match,
