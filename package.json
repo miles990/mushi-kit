@@ -1,0 +1,42 @@
+{
+  "name": "mushi-kit",
+  "version": "0.1.0",
+  "description": "Stop paying your LLM to make the same decision twice. Crystallize repeated AI decisions into zero-cost rules.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test --experimental-strip-types --experimental-transform-types tests/*.test.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "triage",
+    "rules",
+    "crystallization",
+    "llm",
+    "decision",
+    "optimization"
+  ],
+  "author": "Kuro <kuro@kuro.page>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.9.3"
+  }
+}

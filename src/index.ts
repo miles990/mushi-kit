@@ -1,0 +1,220 @@
+/**
+ * mushi-kit
+ *
+ * Stop paying your LLM to make the same decision twice.
+ * Crystallize repeated AI decisions into zero-cost rules.
+ *
+ * @example
+ * ```typescript
+ * import { createMushi } from 'mushi-kit';
+ *
+ * const mushi = createMushi({
+ *   llm: async (event) => {
+ *     const response = await yourLLM.classify(event);
+ *     return { action: response.action, reason: response.reason };
+ *   },
+ * });
+ *
+ * const result = await mushi.triage({ type: 'timer', context: { idle_seconds: 30 } });
+ * // → { action: 'skip', method: 'rule', latencyMs: 0 }
+ * ```
+ */
+
+import type {
+  MushiConfig,
+  Mushi,
+  MushiStats,
+  TriageEvent,
+  TriageResult,
+  Rule,
+  Action,
+  CrystallizationCandidate,
+} from './types.ts';
+import { findMatchingRule, loadRules, saveRules, generateRuleId } from './rules.ts';
+import { logDecision, readDecisionLog } from './telemetry.ts';
+import { findCandidates, candidateToRule } from './crystallizer.ts';
+
+// Re-export all types
+export type {
+  MushiConfig,
+  Mushi,
+  MushiStats,
+  TriageEvent,
+  TriageResult,
+  Rule,
+  Action,
+  CrystallizationCandidate,
+  EventType,
+  Method,
+  RuleMatch,
+  MatchCondition,
+  DecisionLog,
+} from './types.ts';
+
+// Re-export utilities for advanced usage
+export { matchRule, findMatchingRule, loadRules, saveRules } from './rules.ts';
+export { logDecision, readDecisionLog, getLlmDecisions } from './telemetry.ts';
+export { findCandidates, candidateToRule } from './crystallizer.ts';
+
+const DEFAULT_RULES_PATH = './mushi-rules.json';
+const DEFAULT_LOG_PATH = './mushi-decisions.jsonl';
+const DEFAULT_MIN_OCCURRENCES = 10;
+const DEFAULT_MIN_CONSISTENCY = 0.95;
+
+/**
+ * Create a mushi-kit instance.
+ *
+ * mushi-kit watches your LLM's triage decisions and promotes stable patterns
+ * to zero-cost deterministic rules. Like adaptive immunity becoming innate.
+ */
+export function createMushi(config: MushiConfig): Mushi {
+  const rulesPath = config.rulesPath ?? DEFAULT_RULES_PATH;
+  const logPath = config.logPath ?? DEFAULT_LOG_PATH;
+  const autoLog = config.autoLog ?? true;
+  const failOpen = config.failOpen ?? true;
+  const failOpenAction = config.failOpenAction ?? 'wake';
+  const minOccurrences = config.crystallize?.minOccurrences ?? DEFAULT_MIN_OCCURRENCES;
+  const minConsistency = config.crystallize?.minConsistency ?? DEFAULT_MIN_CONSISTENCY;
+
+  // Load existing rules
+  let rules = loadRules(rulesPath);
+
+  // Stats tracking (in-memory, resets on restart)
+  let totalDecisions = 0;
+  let ruleDecisions = 0;
+  let llmDecisions = 0;
+  let errorDecisions = 0;
+  let ruleLatencySum = 0;
+  let llmLatencySum = 0;
+
+  async function triage(event: TriageEvent): Promise<TriageResult> {
+    const start = Date.now();
+    totalDecisions++;
+
+    // Phase 1: Try rules (instant, zero-cost)
+    const matchedRule = findMatchingRule(event, rules);
+    if (matchedRule) {
+      matchedRule.hitCount++;
+      const latencyMs = Date.now() - start;
+      ruleDecisions++;
+      ruleLatencySum += latencyMs;
+
+      const result: TriageResult = {
+        action: matchedRule.action,
+        reason: matchedRule.reason,
+        method: 'rule',
+        latencyMs,
+        ruleId: matchedRule.id,
+      };
+
+      if (autoLog) {
+        logDecision(logPath, event, result.action, result.reason, 'rule', latencyMs);
+      }
+
+      return result;
+    }
+
+    // Phase 2: Call LLM (expensive, flexible)
+    try {
+      const llmResult = await config.llm(event);
+      const latencyMs = Date.now() - start;
+      llmDecisions++;
+      llmLatencySum += latencyMs;
+
+      const result: TriageResult = {
+        action: llmResult.action,
+        reason: llmResult.reason,
+        method: 'llm',
+        latencyMs,
+      };
+
+      if (autoLog) {
+        logDecision(logPath, event, result.action, result.reason, 'llm', latencyMs);
+      }
+
+      return result;
+    } catch (err) {
+      // Phase 3: Fail-open (safety net)
+      const latencyMs = Date.now() - start;
+      errorDecisions++;
+
+      if (!failOpen) throw err;
+
+      const reason = `error: ${err instanceof Error ? err.message : 'unknown'} — fail-open to ${failOpenAction}`;
+      const result: TriageResult = {
+        action: failOpenAction,
+        reason,
+        method: 'error',
+        latencyMs,
+      };
+
+      if (autoLog) {
+        logDecision(logPath, event, result.action, reason, 'error', latencyMs);
+      }
+
+      return result;
+    }
+  }
+
+  function getCandidates(opts?: { minOccurrences?: number; minConsistency?: number }): CrystallizationCandidate[] {
+    const logs = readDecisionLog(logPath);
+    return findCandidates(logs, {
+      minOccurrences: opts?.minOccurrences ?? minOccurrences,
+      minConsistency: opts?.minConsistency ?? minConsistency,
+    });
+  }
+
+  function crystallize(candidate: CrystallizationCandidate): Rule {
+    const rule = candidateToRule(candidate);
+    rules.push(rule);
+    saveRules(rulesPath, rules);
+    return rule;
+  }
+
+  function stats(): MushiStats {
+    return {
+      ruleCount: rules.length,
+      totalDecisions,
+      ruleDecisions,
+      llmDecisions,
+      errorDecisions,
+      ruleCoverage: totalDecisions > 0 ? (ruleDecisions / totalDecisions) * 100 : 0,
+      avgRuleLatencyMs: ruleDecisions > 0 ? ruleLatencySum / ruleDecisions : 0,
+      avgLlmLatencyMs: llmDecisions > 0 ? llmLatencySum / llmDecisions : 0,
+    };
+  }
+
+  function getRules(): Rule[] {
+    return [...rules];
+  }
+
+  function addRule(partial: Omit<Rule, 'id' | 'createdAt' | 'hitCount'>): Rule {
+    const rule: Rule = {
+      ...partial,
+      id: generateRuleId(),
+      createdAt: new Date().toISOString(),
+      hitCount: 0,
+    };
+    rules.push(rule);
+    saveRules(rulesPath, rules);
+    return rule;
+  }
+
+  function removeRule(id: string): boolean {
+    const idx = rules.findIndex(r => r.id === id);
+    if (idx === -1) return false;
+    rules.splice(idx, 1);
+    saveRules(rulesPath, rules);
+    return true;
+  }
+
+  return {
+    triage,
+    getCandidates,
+    crystallize,
+    stats,
+    getRules,
+    addRule,
+    removeRule,
+  };
+}
