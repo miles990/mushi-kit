@@ -13,7 +13,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc",
@@ -30,6 +31,14 @@
     "decision",
     "optimization"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/miles990/mushi-kit.git"
+  },
+  "homepage": "https://github.com/miles990/mushi-kit#readme",
+  "bugs": {
+    "url": "https://github.com/miles990/mushi-kit/issues"
+  },
   "author": "Kuro <kuro@kuro.page>",
   "license": "MIT",
   "engines": {

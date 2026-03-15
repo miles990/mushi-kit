@@ -5,7 +5,8 @@
  * Rules are deterministic, instant (0ms), and zero-cost.
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { Rule, RuleMatch, MatchCondition, TriageEvent } from './types.ts';
 
 let ruleIdCounter = 0;
@@ -97,5 +98,7 @@ export function loadRules(path: string): Rule[] {
 
 /** Save rules to a JSON file */
 export function saveRules(path: string, rules: Rule[]): void {
+  const dir = dirname(path);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(path, JSON.stringify(rules, null, 2), 'utf-8');
 }
