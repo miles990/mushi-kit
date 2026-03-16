@@ -132,6 +132,10 @@ export interface Myelin<A extends string = DefaultAction> {
   getMethodology: () => Methodology;
   /** Full three-layer distillation: rules → templates → methodology */
   distill: () => DistillResult<A>;
+  /** Compress rules using templates — N specific rules → 1 broad rule */
+  optimize: (opts?: { minTemplateHits?: number }) => OptimizeResult<A>;
+  /** Full evolution cycle: distill → optimize → detect changes → return guidance */
+  evolve: (prev?: Methodology) => EvolutionResult<A>;
 }
 
 /** Statistics about the myelin instance */
@@ -241,4 +245,36 @@ export interface DistillResult<A extends string = DefaultAction> {
   rules: Rule<A>[];
   templates: Template<A>[];
   methodology: Methodology;
+  /** Formatted methodology as human-readable text (for LLM injection) */
+  methodologyText: string;
+}
+
+// ── Closed Loop: Feedback ──────────────────────────────
+
+/** Result of rule optimization (template compression) */
+export interface OptimizeResult<A extends string = DefaultAction> {
+  /** New rule set after merging */
+  rules: Rule<A>[];
+  /** Rules that were merged into broader rules */
+  mergedRuleIds: string[];
+  /** New broader rules created from templates */
+  newMergedRules: Rule<A>[];
+  /** Compression ratio (original count / new count) */
+  compressionRatio: number;
+}
+
+/** A detected change in the methodology between distillations */
+export interface EvolutionEvent {
+  type: 'principle_emerged' | 'principle_retired' | 'dimension_emerged' | 'dimension_retired' | 'rules_compressed';
+  description: string;
+  details?: Record<string, unknown>;
+}
+
+/** Result of a full evolution cycle (distill + feedback + optimize) */
+export interface EvolutionResult<A extends string = DefaultAction> {
+  distill: DistillResult<A>;
+  optimized: OptimizeResult<A>;
+  events: EvolutionEvent[];
+  /** Formatted methodology for LLM prompt injection */
+  guidance: string;
 }

@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMyelin } from '../src/index.ts';
+import { formatMethodology } from '../src/methodology.ts';
 import { unlinkSync, existsSync } from 'node:fs';
 import type { Action } from '../src/types.ts';
 
@@ -176,6 +177,138 @@ describe('createMyelin integration', () => {
     assert.equal(entry.action, 'wake');
     assert.equal(entry.method, 'llm');
     assert.ok(entry.ts);
+  });
+});
+
+describe('Three-layer distillation (closed loop)', () => {
+  beforeEach(cleanup);
+  afterEach(cleanup);
+
+  it('getTemplates returns templates from current rules', () => {
+    const myelin = createMyelin({
+      llm: async () => ({ action: 'skip' as Action, reason: 'test' }),
+      rulesPath: TEST_RULES,
+      logPath: TEST_LOG,
+    });
+
+    // Add rules with same structure → should form a template
+    myelin.addRule({ match: { type: 'timer', context: { idle: true, seconds: { lte: 60 } } }, action: 'skip', reason: 'short idle' });
+    myelin.addRule({ match: { type: 'timer', context: { idle: true, seconds: { lte: 300 } } }, action: 'skip', reason: 'medium idle' });
+
+    const templates = myelin.getTemplates();
+    assert.equal(templates.length, 1);
+    assert.equal(templates[0].action, 'skip');
+    assert.equal(templates[0].ruleCount, 2);
+    assert.equal(templates[0].invariants.eventType, 'timer');
+  });
+
+  it('getMethodology extracts dimensions and principles', () => {
+    const myelin = createMyelin({
+      llm: async () => ({ action: 'skip' as Action, reason: 'test' }),
+      rulesPath: TEST_RULES,
+      logPath: TEST_LOG,
+    });
+
+    myelin.addRule({ match: { type: 'pr', context: { is_bot: true, lines: { lte: 50 } } }, action: 'skip', reason: 'bot PR' });
+    myelin.addRule({ match: { type: 'pr', context: { is_bot: true, lines: { lte: 100 } } }, action: 'skip', reason: 'bot PR' });
+    myelin.addRule({ match: { type: 'alert', context: { is_bot: false, severity: 'high' } }, action: 'wake', reason: 'urgent' });
+    myelin.addRule({ match: { type: 'alert', context: { is_bot: false, severity: 'critical' } }, action: 'wake', reason: 'urgent' });
+
+    const methodology = myelin.getMethodology();
+    assert.ok(methodology.dimensions.length > 0);
+    assert.ok(methodology.principles.length > 0);
+    assert.equal(methodology.templateCount, 2);
+    assert.equal(methodology.ruleCount, 4);
+  });
+
+  it('distill() auto-crystallizes candidates into rules', async () => {
+    const myelin = createMyelin({
+      llm: async (event) => {
+        if (event.type === 'timer' && event.context?.idle === true) {
+          return { action: 'skip' as Action, reason: 'idle timer' };
+        }
+        return { action: 'wake' as Action, reason: 'active' };
+      },
+      rulesPath: TEST_RULES,
+      logPath: TEST_LOG,
+      crystallize: { minOccurrences: 3, minConsistency: 0.9 },
+    });
+
+    // Generate consistent LLM decisions for two patterns
+    for (let i = 0; i < 5; i++) {
+      await myelin.triage({ type: 'timer', context: { idle: true, seconds: 30 } });
+    }
+    for (let i = 0; i < 5; i++) {
+      await myelin.triage({ type: 'message', context: { idle: false } });
+    }
+
+    assert.equal(myelin.getRules().length, 0);
+    assert.equal(myelin.stats().llmDecisions, 10);
+
+    const result = myelin.distill();
+
+    // Layer 1: candidates auto-crystallized into rules
+    assert.ok(result.rules.length >= 2, `Expected ≥2 rules, got ${result.rules.length}`);
+
+    // Layer 2 + 3: pipeline runs (templates may be empty if rules are structurally unique)
+    assert.ok(result.methodology.generatedAt);
+    assert.ok(Array.isArray(result.templates));
+
+    // The crystallized rule should now match
+    const r1 = await myelin.triage({ type: 'timer', context: { idle: true, seconds: 30 } });
+    assert.equal(r1.method, 'rule');
+    assert.equal(r1.action, 'skip');
+  });
+
+  it('distill() produces full three-layer output with enough rules', () => {
+    const myelin = createMyelin({
+      llm: async () => ({ action: 'skip' as Action, reason: 'test' }),
+      rulesPath: TEST_RULES,
+      logPath: TEST_LOG,
+    });
+
+    // Manually add rules that share structure → will form templates
+    myelin.addRule({ match: { type: 'pr', source: 'github', context: { is_bot: true, lines: { lte: 50 } } }, action: 'skip', reason: 'small bot PR' });
+    myelin.addRule({ match: { type: 'pr', source: 'github', context: { is_bot: true, lines: { lte: 100 } } }, action: 'skip', reason: 'medium bot PR' });
+    myelin.addRule({ match: { type: 'pr', source: 'github', context: { is_bot: true, lines: { lte: 200 } } }, action: 'skip', reason: 'large bot PR' });
+    myelin.addRule({ match: { type: 'alert', context: { severity: 'low', auto_resolve: true } }, action: 'quick', reason: 'auto alert' });
+    myelin.addRule({ match: { type: 'alert', context: { severity: 'low', auto_resolve: true } }, action: 'quick', reason: 'auto alert 2' });
+
+    const result = myelin.distill();
+
+    // Layer 1: 5 manually added rules
+    assert.equal(result.rules.length, 5);
+
+    // Layer 2: templates formed from structurally similar rules
+    assert.ok(result.templates.length >= 2, `Expected ≥2 templates, got ${result.templates.length}`);
+
+    // Layer 3: methodology with dimensions and principles
+    assert.ok(result.methodology.dimensions.length > 0, 'Should have dimensions');
+    assert.ok(result.methodology.principles.length > 0, 'Should have principles');
+    assert.equal(result.methodology.ruleCount, 5);
+  });
+
+  it('closed loop: formatMethodology produces usable LLM context', () => {
+    const myelin = createMyelin({
+      llm: async () => ({ action: 'skip' as Action, reason: 'test' }),
+      rulesPath: TEST_RULES,
+      logPath: TEST_LOG,
+    });
+
+    // Build up rules
+    myelin.addRule({ match: { type: 'pr', context: { is_bot: true } }, action: 'skip', reason: 'bot' });
+    myelin.addRule({ match: { type: 'pr', context: { is_bot: true } }, action: 'skip', reason: 'bot 2' });
+    myelin.addRule({ match: { type: 'alert', context: { severity: 'low' } }, action: 'skip', reason: 'low severity' });
+    myelin.addRule({ match: { type: 'alert', context: { severity: 'low' } }, action: 'skip', reason: 'low severity 2' });
+
+    const { methodology } = myelin.distill();
+    const text = formatMethodology(methodology);
+
+    // The formatted text should be usable as LLM system prompt context
+    assert.ok(text.includes('Decision Methodology'));
+    assert.ok(text.length > 50);
+    // This text can be fed back to the LLM to close the loop:
+    // config.llm = (event) => callLLM(event, { systemPrompt: basePrompt + text })
   });
 });
 

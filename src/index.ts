@@ -34,12 +34,21 @@ import type {
   Template,
   Methodology,
   DistillResult,
+  OptimizeResult,
+  EvolutionResult,
 } from './types.ts';
 import { findMatchingRule, loadRules, saveRules, generateRuleId } from './rules.ts';
 import { logDecision, readDecisionLog, logCrystallization } from './telemetry.ts';
 import { findCandidates, candidateToRule } from './crystallizer.ts';
 import { extractTemplates, mergeTemplateToRuleFromRules } from './templates.ts';
 import { extractMethodology, formatMethodology } from './methodology.ts';
+import {
+  scoreAlignment,
+  adjustedThreshold,
+  buildGuidance,
+  optimizeRules as optimizeRulesFn,
+  detectEvolution,
+} from './feedback-loop.ts';
 
 // Re-export all types
 export type {
@@ -66,6 +75,10 @@ export type {
   Methodology,
   MatrixCell,
   DistillResult,
+  // Closed Loop
+  OptimizeResult,
+  EvolutionEvent,
+  EvolutionResult,
 } from './types.ts';
 
 // Re-export utilities for advanced usage
@@ -74,6 +87,7 @@ export { logDecision, readDecisionLog, getLlmDecisions, logCrystallization } fro
 export { findCandidates, candidateToRule } from './crystallizer.ts';
 export { extractTemplates, mergeTemplateToRuleFromRules } from './templates.ts';
 export { extractMethodology, formatMethodology } from './methodology.ts';
+export { scoreAlignment, adjustedThreshold, buildGuidance, optimizeRules, detectEvolution } from './feedback-loop.ts';
 export { startProxy } from './proxy.ts';
 export type { ProxyConfig } from './proxy.ts';
 
@@ -283,10 +297,41 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
   }
 
   function distill(): DistillResult<A> {
-    // Layer 1: crystallize any pending candidates into rules
-    const candidates = getCandidates();
-    for (const candidate of candidates) {
-      // Check if a rule already covers this exact pattern
+    // Layer 1: crystallize pending candidates into rules
+    // Use methodology-aware thresholds — aligned patterns need fewer observations
+    const currentMethodology = extractMethodology(extractTemplates(rules), rules);
+    const logs = readDecisionLog(logPath);
+
+    // First pass: standard thresholds
+    const standardCandidates = findCandidates<A>(logs as DecisionLog<A>[], {
+      minOccurrences,
+      minConsistency,
+    });
+
+    // Second pass: methodology-aware thresholds (find patterns standard pass missed)
+    const allLlmLogs = logs.filter(l => l.method === 'llm');
+    const adjustedCandidates = currentMethodology.principles.length > 0
+      ? findCandidates<A>(logs as DecisionLog<A>[], {
+          minOccurrences: Math.max(3, Math.round(minOccurrences * 0.5)),
+          minConsistency,
+        }).filter(c => {
+          // Only accept sub-threshold candidates that strongly align with methodology
+          const alignment = scoreAlignment(c, currentMethodology);
+          const threshold = adjustedThreshold(alignment, minOccurrences);
+          return c.occurrences >= threshold && alignment >= 0.4;
+        })
+      : [];
+
+    // Merge and deduplicate candidates
+    const seen = new Set<string>();
+    const allCandidates = [...standardCandidates, ...adjustedCandidates].filter(c => {
+      const key = `${c.suggestedAction}|${c.match.type}|${c.match.source}|${JSON.stringify(c.match.context)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    for (const candidate of allCandidates) {
       const alreadyCovered = rules.some(r =>
         r.action === candidate.suggestedAction &&
         r.match.type === candidate.match.type &&
@@ -315,6 +360,65 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
       rules: [...rules],
       templates,
       methodology,
+      methodologyText: formatMethodology(methodology),
+    };
+  }
+
+  function optimize(opts?: { minTemplateHits?: number }): OptimizeResult<A> {
+    const templates = extractTemplates(rules);
+    const result = optimizeRulesFn(rules, templates, {
+      minTemplateHits: opts?.minTemplateHits ?? 10,
+      minRuleCount: 3,
+    });
+
+    if (result.mergedRuleIds.length > 0) {
+      // Apply the optimization — replace rules in-memory and persist
+      rules = result.rules;
+      saveRules(rulesPath, rules);
+
+      logCrystallization(logPath, 'rules_compressed', {
+        reason: `Compressed ${result.mergedRuleIds.length} rules into ${result.newMergedRules.length} merged rules (${result.compressionRatio.toFixed(1)}x)`,
+      });
+    }
+
+    return result;
+  }
+
+  function evolve(prev?: Methodology): EvolutionResult<A> {
+    // Step 1: Full distillation (crystallize + templates + methodology)
+    const distillResult = distill();
+
+    // Step 2: Optimize rules using templates
+    const optimized = optimize();
+
+    // Step 3: Re-extract methodology after optimization (rules changed)
+    const postOptTemplates = extractTemplates(rules);
+    const postOptMethodology = extractMethodology(postOptTemplates, rules);
+
+    // Step 4: Detect evolution
+    const events = detectEvolution(prev, postOptMethodology);
+
+    // Step 5: Build guidance for LLM injection
+    const guidance = buildGuidance(postOptMethodology);
+
+    if (events.length > 0) {
+      logCrystallization(logPath, 'evolution_detected', {
+        reason: `${events.length} changes: ${events.map(e => e.type).join(', ')}`,
+      });
+    }
+
+    return {
+      distill: {
+        ...distillResult,
+        // Update with post-optimization state
+        rules: [...rules],
+        templates: postOptTemplates,
+        methodology: postOptMethodology,
+        methodologyText: formatMethodology(postOptMethodology),
+      },
+      optimized,
+      events,
+      guidance,
     };
   }
 
@@ -330,5 +434,7 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
     getTemplates,
     getMethodology,
     distill,
+    optimize,
+    evolve,
   };
 }

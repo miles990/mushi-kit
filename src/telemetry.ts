@@ -55,17 +55,12 @@ export function getLlmDecisions(logs: DecisionLog<string>[]): DecisionLog<string
 }
 
 /** Crystallization event types */
-export type CrystallizationEvent = 'candidate_found' | 'rule_crystallized' | 'rule_removed';
+export type CrystallizationEvent = 'candidate_found' | 'rule_crystallized' | 'rule_removed' | 'distill_complete' | 'rules_compressed' | 'evolution_detected';
 
 interface CrystallizationLog {
   ts: string;
   event: CrystallizationEvent;
-  ruleId?: string;
-  match?: unknown;
-  action?: string;
-  reason?: string;
-  occurrences?: number;
-  consistency?: number;
+  [key: string]: unknown;
 }
 
 /** Log a crystallization event (candidate found, rule promoted, rule removed) */
