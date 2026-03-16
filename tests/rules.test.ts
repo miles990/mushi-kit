@@ -85,10 +85,10 @@ describe('findMatchingRule', () => {
 });
 
 describe('loadRules / saveRules', () => {
-  const testPath = '/tmp/myelin-test-rules.json';
+  const testPath = '/tmp/myelinate-test-rules.json';
 
   it('returns empty array for non-existent file', () => {
-    const rules = loadRules('/tmp/nonexistent-myelin-rules-xyz.json');
+    const rules = loadRules('/tmp/nonexistent-myelinate-rules-xyz.json');
     assert.deepEqual(rules, []);
   });
 

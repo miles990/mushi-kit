@@ -1,11 +1,11 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { createMyelin } from '../src/index.ts';
+import { createMyelinate } from '../src/index.ts';
 import { unlinkSync, existsSync } from 'node:fs';
 import type { Action } from '../src/types.ts';
 
-const TEST_RULES = '/tmp/myelin-integration-rules.json';
-const TEST_LOG = '/tmp/myelin-integration-decisions.jsonl';
+const TEST_RULES = '/tmp/myelinate-integration-rules.json';
+const TEST_LOG = '/tmp/myelinate-integration-decisions.jsonl';
 
 function cleanup() {
   for (const f of [TEST_RULES, TEST_LOG]) {
@@ -13,13 +13,13 @@ function cleanup() {
   }
 }
 
-describe('createMyelin integration', () => {
+describe('createMyelinate integration', () => {
   beforeEach(cleanup);
   afterEach(cleanup);
 
   it('calls LLM when no rules exist', async () => {
     let llmCalled = false;
-    const myelin = createMyelin({
+    const myelinate = createMyelinate({
       llm: async () => {
         llmCalled = true;
         return { action: 'wake' as Action, reason: 'needs attention' };
@@ -28,7 +28,7 @@ describe('createMyelin integration', () => {
       logPath: TEST_LOG,
     });
 
-    const result = await myelin.triage({ type: 'message' });
+    const result = await myelinate.triage({ type: 'message' });
     assert.ok(llmCalled);
     assert.equal(result.action, 'wake');
     assert.equal(result.method, 'llm');
@@ -36,7 +36,7 @@ describe('createMyelin integration', () => {
 
   it('uses rules instead of LLM when rule matches', async () => {
     let llmCalled = false;
-    const myelin = createMyelin({
+    const myelinate = createMyelinate({
       llm: async () => {
         llmCalled = true;
         return { action: 'wake' as Action, reason: 'llm decided' };
@@ -45,9 +45,9 @@ describe('createMyelin integration', () => {
       logPath: TEST_LOG,
     });
 
-    myelin.addRule({ match: { type: 'timer' }, action: 'skip', reason: 'manual rule' });
+    myelinate.addRule({ match: { type: 'timer' }, action: 'skip', reason: 'manual rule' });
 
-    const result = await myelin.triage({ type: 'timer' });
+    const result = await myelinate.triage({ type: 'timer' });
     assert.ok(!llmCalled);
     assert.equal(result.action, 'skip');
     assert.equal(result.method, 'rule');
@@ -55,7 +55,7 @@ describe('createMyelin integration', () => {
   });
 
   it('fail-open when LLM throws', async () => {
-    const myelin = createMyelin({
+    const myelinate = createMyelinate({
       llm: async () => { throw new Error('API down'); },
       rulesPath: TEST_RULES,
       logPath: TEST_LOG,
@@ -63,37 +63,37 @@ describe('createMyelin integration', () => {
       failOpenAction: 'wake',
     });
 
-    const result = await myelin.triage({ type: 'alert' });
+    const result = await myelinate.triage({ type: 'alert' });
     assert.equal(result.action, 'wake');
     assert.equal(result.method, 'error');
     assert.ok(result.reason.includes('API down'));
   });
 
   it('throws when failOpen is false', async () => {
-    const myelin = createMyelin({
+    const myelinate = createMyelinate({
       llm: async () => { throw new Error('API down'); },
       rulesPath: TEST_RULES,
       logPath: TEST_LOG,
       failOpen: false,
     });
 
-    await assert.rejects(() => myelin.triage({ type: 'alert' }), { message: 'API down' });
+    await assert.rejects(() => myelinate.triage({ type: 'alert' }), { message: 'API down' });
   });
 
   it('tracks stats correctly', async () => {
-    const myelin = createMyelin({
+    const myelinate = createMyelinate({
       llm: async () => ({ action: 'wake' as Action, reason: 'llm' }),
       rulesPath: TEST_RULES,
       logPath: TEST_LOG,
     });
 
-    myelin.addRule({ match: { type: 'timer' }, action: 'skip', reason: 'rule' });
+    myelinate.addRule({ match: { type: 'timer' }, action: 'skip', reason: 'rule' });
 
-    await myelin.triage({ type: 'timer' });   // rule
-    await myelin.triage({ type: 'timer' });   // rule
-    await myelin.triage({ type: 'message' }); // llm
+    await myelinate.triage({ type: 'timer' });   // rule
+    await myelinate.triage({ type: 'timer' });   // rule
+    await myelinate.triage({ type: 'message' }); // llm
 
-    const s = myelin.stats();
+    const s = myelinate.stats();
     assert.equal(s.totalDecisions, 3);
     assert.equal(s.ruleDecisions, 2);
     assert.equal(s.llmDecisions, 1);
@@ -101,7 +101,7 @@ describe('createMyelin integration', () => {
   });
 
   it('full crystallization lifecycle', async () => {
-    const myelin = createMyelin({
+    const myelinate = createMyelinate({
       llm: async (event) => {
         if (event.type === 'timer' && event.context?.changed === false) {
           return { action: 'skip' as Action, reason: 'idle, no changes' };
@@ -115,58 +115,58 @@ describe('createMyelin integration', () => {
 
     // Generate 10 identical LLM decisions
     for (let i = 0; i < 10; i++) {
-      await myelin.triage({ type: 'timer', context: { changed: false, idle_seconds: 30 } });
+      await myelinate.triage({ type: 'timer', context: { changed: false, idle_seconds: 30 } });
     }
 
-    assert.equal(myelin.stats().llmDecisions, 10);
-    assert.equal(myelin.stats().ruleDecisions, 0);
+    assert.equal(myelinate.stats().llmDecisions, 10);
+    assert.equal(myelinate.stats().ruleDecisions, 0);
 
     // Find candidates
-    const candidates = myelin.getCandidates({ minOccurrences: 5, minConsistency: 0.95 });
+    const candidates = myelinate.getCandidates({ minOccurrences: 5, minConsistency: 0.95 });
     assert.ok(candidates.length >= 1);
     assert.equal(candidates[0].suggestedAction, 'skip');
     assert.equal(candidates[0].consistency, 1.0);
 
     // Crystallize
-    const rule = myelin.crystallize(candidates[0]);
+    const rule = myelinate.crystallize(candidates[0]);
     assert.ok(rule.id.startsWith('rule_'));
     assert.equal(rule.action, 'skip');
-    assert.equal(myelin.getRules().length, 1);
+    assert.equal(myelinate.getRules().length, 1);
 
     // Now the same event should hit the rule, not the LLM
-    const result = await myelin.triage({ type: 'timer', context: { changed: false, idle_seconds: 30 } });
+    const result = await myelinate.triage({ type: 'timer', context: { changed: false, idle_seconds: 30 } });
     assert.equal(result.method, 'rule');
     assert.equal(result.action, 'skip');
-    assert.equal(myelin.stats().ruleDecisions, 1);
+    assert.equal(myelinate.stats().ruleDecisions, 1);
   });
 
   it('addRule and removeRule work', () => {
-    const myelin = createMyelin({
+    const myelinate = createMyelinate({
       llm: async () => ({ action: 'wake' as Action, reason: 'test' }),
       rulesPath: TEST_RULES,
       logPath: TEST_LOG,
     });
 
-    const rule = myelin.addRule({ match: { type: 'x' }, action: 'skip', reason: 'test' });
-    assert.equal(myelin.getRules().length, 1);
+    const rule = myelinate.addRule({ match: { type: 'x' }, action: 'skip', reason: 'test' });
+    assert.equal(myelinate.getRules().length, 1);
 
-    const removed = myelin.removeRule(rule.id);
+    const removed = myelinate.removeRule(rule.id);
     assert.ok(removed);
-    assert.equal(myelin.getRules().length, 0);
+    assert.equal(myelinate.getRules().length, 0);
 
-    assert.ok(!myelin.removeRule('nonexistent'));
+    assert.ok(!myelinate.removeRule('nonexistent'));
   });
 
   it('logs decisions to JSONL', async () => {
-    const myelin = createMyelin({
+    const myelinate = createMyelinate({
       llm: async () => ({ action: 'wake' as Action, reason: 'test' }),
       rulesPath: TEST_RULES,
       logPath: TEST_LOG,
       autoLog: true,
     });
 
-    await myelin.triage({ type: 'message' });
-    await myelin.triage({ type: 'alert' });
+    await myelinate.triage({ type: 'message' });
+    await myelinate.triage({ type: 'alert' });
 
     // Read log file
     const { readFileSync } = await import('node:fs');
@@ -185,7 +185,7 @@ describe('Custom actions (generics)', () => {
 
   it('supports custom action types via process()', async () => {
     type ModelAction = 'gpt-4' | 'haiku' | 'local';
-    const myelin = createMyelin<ModelAction>({
+    const myelinate = createMyelinate<ModelAction>({
       llm: async (event) => {
         const complexity = event.context?.complexity as string;
         if (complexity === 'high') return { action: 'gpt-4', reason: 'complex query' };
@@ -196,28 +196,28 @@ describe('Custom actions (generics)', () => {
       logPath: TEST_LOG,
     });
 
-    const result = await myelin.process({ type: 'custom', context: { complexity: 'high' } });
+    const result = await myelinate.process({ type: 'custom', context: { complexity: 'high' } });
     assert.equal(result.action, 'gpt-4');
     assert.equal(result.method, 'llm');
   });
 
   it('process() and triage() return the same result', async () => {
-    const myelin = createMyelin({
+    const myelinate = createMyelinate({
       llm: async () => ({ action: 'skip' as Action, reason: 'test' }),
       rulesPath: TEST_RULES,
       logPath: TEST_LOG,
       autoLog: false,
     });
 
-    const r1 = await myelin.process({ type: 'timer' });
-    const r2 = await myelin.triage({ type: 'timer' });
+    const r1 = await myelinate.process({ type: 'timer' });
+    const r2 = await myelinate.triage({ type: 'timer' });
     assert.equal(r1.action, r2.action);
     assert.equal(r1.method, r2.method);
   });
 
   it('crystallizes custom actions', async () => {
     type Priority = 'p0' | 'p1' | 'p2';
-    const myelin = createMyelin<Priority>({
+    const myelinate = createMyelinate<Priority>({
       llm: async () => ({ action: 'p2', reason: 'low priority' }),
       rulesPath: TEST_RULES,
       logPath: TEST_LOG,
@@ -226,18 +226,18 @@ describe('Custom actions (generics)', () => {
 
     // Generate consistent decisions
     for (let i = 0; i < 10; i++) {
-      await myelin.process({ type: 'timer', context: { idle: true } });
+      await myelinate.process({ type: 'timer', context: { idle: true } });
     }
 
-    const candidates = myelin.getCandidates({ minOccurrences: 5, minConsistency: 0.95 });
+    const candidates = myelinate.getCandidates({ minOccurrences: 5, minConsistency: 0.95 });
     assert.ok(candidates.length > 0);
     assert.equal(candidates[0].suggestedAction, 'p2');
 
-    const rule = myelin.crystallize(candidates[0]);
+    const rule = myelinate.crystallize(candidates[0]);
     assert.equal(rule.action, 'p2');
 
     // Now should hit rule
-    const result = await myelin.process({ type: 'timer', context: { idle: true } });
+    const result = await myelinate.process({ type: 'timer', context: { idle: true } });
     assert.equal(result.method, 'rule');
     assert.equal(result.action, 'p2');
   });

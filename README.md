@@ -1,8 +1,8 @@
-# myelin
+# myelinate
 
 **Your LLM keeps making the same decisions. Make them once, then never again.**
 
-myelin watches your LLM's outputs, finds repeated patterns, and crystallizes them into instant, zero-cost rules — automatically. Works with any LLM, any action type, any classification task.
+myelinate watches your LLM's outputs, finds repeated patterns, and crystallizes them into instant, zero-cost rules — automatically. Works with any LLM, any action type, any classification task.
 
 ```
 Week 1:  ████████████████████░░░░  78% LLM
@@ -21,7 +21,7 @@ If you're using an LLM to make repeated decisions, you're burning money on patte
 
 Each repeated call costs **time** (500-2000ms), **money** ($0.001-0.01/call), and **reliability** (LLMs can respond differently each time). Your LLM is spending most of its budget re-learning what it already knows.
 
-myelin fixes this. It watches your LLM's decisions, identifies stable patterns, and promotes them to deterministic rules — instant, free, and 100% consistent. The LLM only handles genuinely novel inputs.
+myelinate fixes this. It watches your LLM's decisions, identifies stable patterns, and promotes them to deterministic rules — instant, free, and 100% consistent. The LLM only handles genuinely novel inputs.
 
 ## How It Works
 
@@ -47,9 +47,9 @@ npm install myelinate
 Copy this into `demo.mjs` and run `node demo.mjs` — no API keys needed:
 
 ```javascript
-import { createMyelin } from 'myelinate';
+import { createMyelinate } from 'myelinate';
 
-const myelin = createMyelin({
+const myelinate = createMyelinate({
   // Replace this with your real LLM (OpenAI, Claude, Ollama, etc.)
   llm: async (event) => {
     if (event.context?.author === 'dependabot[bot]')
@@ -62,23 +62,23 @@ const myelin = createMyelin({
 
 // Step 1: Feed it 15 similar events
 for (let i = 0; i < 15; i++) {
-  await myelin.process({
+  await myelinate.process({
     type: 'alert', source: 'github',
     context: { title: `dependabot: bump pkg-${i}`, author: 'dependabot[bot]' },
   });
 }
-console.log('After 15 calls:', myelin.stats());
+console.log('After 15 calls:', myelinate.stats());
 // → { ruleCount: 0, llmDecisions: 15, ruleCoverage: 0, ... }
 
 // Step 2: Find the stable pattern
-const candidates = myelin.getCandidates({ minOccurrences: 10, minConsistency: 0.95 });
+const candidates = myelinate.getCandidates({ minOccurrences: 10, minConsistency: 0.95 });
 console.log(`Found ${candidates.length} pattern(s) ready to crystallize`);
 
 // Step 3: Crystallize it into a rule
-if (candidates.length > 0) myelin.crystallize(candidates[0]);
+if (candidates.length > 0) myelinate.crystallize(candidates[0]);
 
 // Step 4: Now it's instant — zero LLM calls
-const result = await myelin.process({
+const result = await myelinate.process({
   type: 'alert', source: 'github',
   context: { title: 'dependabot: bump axios', author: 'dependabot[bot]' },
 });
@@ -91,12 +91,12 @@ console.log(result);
 Replace the mock with your actual LLM call:
 
 ```javascript
-import { createMyelin } from 'myelinate';
+import { createMyelinate } from 'myelinate';
 import OpenAI from 'openai'; // or any LLM client
 
 const openai = new OpenAI();
 
-const myelin = createMyelin({
+const myelinate = createMyelinate({
   llm: async (event) => {
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -107,21 +107,21 @@ const myelin = createMyelin({
   },
 });
 
-// Same API — myelin handles the rest
-const result = await myelin.process({ type: 'alert', context: { title: '...' } });
+// Same API — myelinate handles the rest
+const result = await myelinate.process({ type: 'alert', context: { title: '...' } });
 ```
 
 ### Example: LLM Model Router
 
-myelin isn't limited to skip/wake/quick — use **any action type** with TypeScript generics:
+myelinate isn't limited to skip/wake/quick — use **any action type** with TypeScript generics:
 
 ```typescript
-import { createMyelin } from 'myelinate';
+import { createMyelinate } from 'myelinate';
 
 // Define your own action types
 type Model = 'gpt-4' | 'haiku' | 'local';
 
-const router = createMyelin<Model>({
+const router = createMyelinate<Model>({
   llm: async (event) => {
     // Your routing logic (called only for novel query patterns)
     if (event.context?.complexity === 'high') {
@@ -153,7 +153,7 @@ This works for **any classification task**: priority levels (`'p0' | 'p1' | 'p2'
 | **Content moderation** | approve / flag / reject | "Greeting posts → approve", "Known spam → reject" |
 | **Intent detection** | search / buy / support / browse | "Where is my order → support", "Show me X → search" |
 
-If your LLM makes the same type of decision repeatedly, myelin can learn and replace the stable patterns.
+If your LLM makes the same type of decision repeatedly, myelinate can learn and replace the stable patterns.
 
 ## Real Data
 
@@ -172,17 +172,17 @@ From a production AI agent running 24/7:
 
 ### Actions
 
-By default, myelin uses three triage actions: `'skip'`, `'wake'`, `'quick'`. But you can use **any string type** via TypeScript generics:
+By default, myelinate uses three triage actions: `'skip'`, `'wake'`, `'quick'`. But you can use **any string type** via TypeScript generics:
 
 ```typescript
 // Default: triage
-const myelin = createMyelin({ llm: ... });
+const myelinate = createMyelinate({ llm: ... });
 
 // Custom: model routing
-const router = createMyelin<'gpt-4' | 'haiku' | 'local'>({ llm: ... });
+const router = createMyelinate<'gpt-4' | 'haiku' | 'local'>({ llm: ... });
 
 // Custom: priority levels
-const prioritizer = createMyelin<'p0' | 'p1' | 'p2'>({ llm: ... });
+const prioritizer = createMyelinate<'p0' | 'p1' | 'p2'>({ llm: ... });
 ```
 
 ### Rules vs LLM
@@ -211,18 +211,18 @@ Conservative by default — a wrong rule is worse than no rule.
 
 ## API
 
-### `createMyelin<A>(config)`
+### `createMyelinate<A>(config)`
 
 ```typescript
-import { createMyelin } from 'myelinate';
+import { createMyelinate } from 'myelinate';
 
-const myelin = createMyelin<ActionType>({
+const myelinate = createMyelinate<ActionType>({
   // Required: your LLM function
   llm: (event) => Promise<{ action: ActionType; reason: string }>,
 
   // Optional configuration
-  rulesPath: './myelin-rules.json',       // where rules are stored
-  logPath: './myelin-decisions.jsonl',     // where decisions are logged
+  rulesPath: './myelinate-rules.json',       // where rules are stored
+  logPath: './myelinate-decisions.jsonl',     // where decisions are logged
   autoLog: true,                          // log all decisions
   failOpen: true,                         // return default on LLM error
   failOpenAction: 'wake',                 // default action on error
@@ -233,12 +233,12 @@ const myelin = createMyelin<ActionType>({
 });
 ```
 
-### `myelin.process(event)` / `myelin.triage(event)`
+### `myelinate.process(event)` / `myelinate.triage(event)`
 
 Classify an input. `process()` is the primary API; `triage()` is an alias for backward compatibility.
 
 ```typescript
-const result = await myelin.process({
+const result = await myelinate.process({
   type: 'alert',                    // event type (any string)
   source: 'github',                 // optional: event source
   context: { title: '...' },       // optional: structured data
@@ -246,35 +246,35 @@ const result = await myelin.process({
 // → { action: 'skip', reason: '...', method: 'rule', latencyMs: 0, ruleId?: '...' }
 ```
 
-### `myelin.getCandidates(opts?)`
+### `myelinate.getCandidates(opts?)`
 
 Find patterns stable enough to crystallize.
 
 ```typescript
-const candidates = myelin.getCandidates({
+const candidates = myelinate.getCandidates({
   minOccurrences: 10,   // optional override
   minConsistency: 0.95, // optional override
 });
 ```
 
-### `myelin.crystallize(candidate)`
+### `myelinate.crystallize(candidate)`
 
 Promote a candidate to a permanent rule. Returns the new `Rule`.
 
-### `myelin.stats()`
+### `myelinate.stats()`
 
 ```typescript
-const s = myelin.stats();
+const s = myelinate.stats();
 // { ruleCount, totalDecisions, ruleDecisions, llmDecisions, errorDecisions,
 //   ruleCoverage, avgRuleLatencyMs, avgLlmLatencyMs }
 ```
 
-### `myelin.addRule(rule)` / `myelin.removeRule(id)` / `myelin.getRules()`
+### `myelinate.addRule(rule)` / `myelinate.removeRule(id)` / `myelinate.getRules()`
 
 Manually manage rules. `addRule` auto-generates `id`, `createdAt`, and `hitCount`.
 
 ```typescript
-myelin.addRule({
+myelinate.addRule({
   match: { type: 'alert', context: { severity: { lte: 2 } } },
   action: 'skip',
   reason: 'low severity alerts are noise',
@@ -283,7 +283,7 @@ myelin.addRule({
 
 ## Decision Log
 
-Every decision is logged to JSONL (`myelin-decisions.jsonl` by default):
+Every decision is logged to JSONL (`myelinate-decisions.jsonl` by default):
 
 ```json
 {"ts":"2026-03-15T10:30:00.000Z","event":{"type":"alert","context":{"title":"..."}},"action":"skip","reason":"...","method":"llm","latencyMs":803}
@@ -293,10 +293,10 @@ This log powers crystallization — `getCandidates()` reads it to find stable pa
 
 ```bash
 # Count decisions by method
-grep -o '"method":"[^"]*"' myelin-decisions.jsonl | sort | uniq -c
+grep -o '"method":"[^"]*"' myelinate-decisions.jsonl | sort | uniq -c
 
 # See all LLM decisions (the expensive ones)
-grep '"method":"llm"' myelin-decisions.jsonl
+grep '"method":"llm"' myelinate-decisions.jsonl
 ```
 
 Disable with `autoLog: false`.
@@ -318,9 +318,9 @@ This isn't novel computer science. It's the same process everywhere:
 
 ## Why Not Just Cache / Use Better Prompts?
 
-**vs. Caching (GPTCache, etc.)**: Caching stores exact responses. myelin learns *patterns* — it generalizes across similar inputs and produces deterministic rules you can inspect, edit, and version-control.
+**vs. Caching (GPTCache, etc.)**: Caching stores exact responses. myelinate learns *patterns* — it generalizes across similar inputs and produces deterministic rules you can inspect, edit, and version-control.
 
-**vs. Better Prompts**: Better prompts reduce LLM errors. myelin reduces LLM *calls*. They're complementary:
+**vs. Better Prompts**: Better prompts reduce LLM errors. myelinate reduces LLM *calls*. They're complementary:
 1. Improve your prompts (better decisions)
 2. Crystallize stable decisions (eliminate redundant calls)
 3. The LLM focuses only on genuinely novel inputs
@@ -332,9 +332,9 @@ This isn't novel computer science. It's the same process everywhere:
 | SAGE (Alibaba) | RL training | ~59% | 32x H100 |
 | Prompt optimization | Better prompts | ~20-40% | Same |
 | GPTCache | Response caching | Varies | Same |
-| **myelin** | Pattern crystallization | **up to ~100%** | Any |
+| **myelinate** | Pattern crystallization | **up to ~100%** | Any |
 
-SAGE makes the brain more efficient. Caching remembers past answers. **myelin makes the brain unnecessary for known patterns.**
+SAGE makes the brain more efficient. Caching remembers past answers. **myelinate makes the brain unnecessary for known patterns.**
 
 ## License
 
@@ -342,4 +342,4 @@ MIT
 
 ---
 
-*Built by [Kuro](https://kuro.page), a perception-driven AI agent. myelin is extracted from [mini-agent](https://github.com/miles990/mini-agent)'s mushi subsystem, which eliminated its own LLM calls in 17 days.*
+*Built by [Kuro](https://kuro.page), a perception-driven AI agent. myelinate is extracted from [mini-agent](https://github.com/miles990/mini-agent)'s mushi subsystem, which eliminated its own LLM calls in 17 days.*

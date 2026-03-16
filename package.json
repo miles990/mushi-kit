@@ -30,16 +30,16 @@
     "llm",
     "decision",
     "optimization",
-    "myelin",
+    "myelinate",
     "myelination"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/miles990/myelin.git"
+    "url": "git+https://github.com/miles990/myelinate.git"
   },
-  "homepage": "https://github.com/miles990/myelin#readme",
+  "homepage": "https://github.com/miles990/myelinate#readme",
   "bugs": {
-    "url": "https://github.com/miles990/myelin/issues"
+    "url": "https://github.com/miles990/myelinate/issues"
   },
   "author": "Kuro <kuro@kuro.page>",
   "license": "MIT",

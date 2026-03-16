@@ -1,5 +1,5 @@
 /**
- * myelin — Crystallizer
+ * myelinate — Crystallizer
  *
  * Detects stable patterns in LLM decisions and promotes them to rules.
  * Think of it as adaptive immunity becoming innate immunity.

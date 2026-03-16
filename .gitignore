@@ -2,5 +2,5 @@ node_modules/
 dist/
 .test-tmp/
 *.jsonl
-myelin-rules.json
+myelinate-rules.json
 .tmp-test/
