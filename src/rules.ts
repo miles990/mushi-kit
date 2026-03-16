@@ -1,5 +1,5 @@
 /**
- * myelinate — Rule Engine
+ * myelin — Rule Engine
  *
  * Matches events against crystallized rules.
  * Rules are deterministic, instant (0ms), and zero-cost.

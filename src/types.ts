@@ -1,5 +1,5 @@
 /**
- * myelinate — Core types
+ * myelin — Core types
  *
  * Zero-dependency type definitions for the crystallization engine.
  */
@@ -85,13 +85,13 @@ export interface CrystallizationCandidate<A extends string = DefaultAction> {
   sampleReasons: string[];
 }
 
-/** Configuration for createMyelinate */
-export interface MyelinateConfig<A extends string = DefaultAction> {
+/** Configuration for createMyelin */
+export interface MyelinConfig<A extends string = DefaultAction> {
   /** Your LLM function — called only when no rule matches */
   llm: (event: TriageEvent) => Promise<{ action: A; reason: string }>;
-  /** Path to rules JSON file (default: './myelinate-rules.json') */
+  /** Path to rules JSON file (default: './myelin-rules.json') */
   rulesPath?: string;
-  /** Path to decision log JSONL file (default: './myelinate-decisions.jsonl') */
+  /** Path to decision log JSONL file (default: './myelin-decisions.jsonl') */
   logPath?: string;
   /** Whether to auto-log all decisions (default: true) */
   autoLog?: boolean;
@@ -108,8 +108,8 @@ export interface MyelinateConfig<A extends string = DefaultAction> {
   };
 }
 
-/** The myelinate instance */
-export interface Myelinate<A extends string = DefaultAction> {
+/** The myelin instance */
+export interface Myelin<A extends string = DefaultAction> {
   /** Process an input — returns a decision (primary API) */
   process: (event: TriageEvent) => Promise<TriageResult<A>>;
   /** Triage an event — alias for process() (backward compatible) */
@@ -119,7 +119,7 @@ export interface Myelinate<A extends string = DefaultAction> {
   /** Promote a candidate to a permanent rule */
   crystallize: (candidate: CrystallizationCandidate<A>) => Rule<A>;
   /** Get current stats */
-  stats: () => MyelinateStats;
+  stats: () => MyelinStats;
   /** Get all current rules */
   getRules: () => Rule<A>[];
   /** Add a rule manually */
@@ -128,8 +128,8 @@ export interface Myelinate<A extends string = DefaultAction> {
   removeRule: (id: string) => boolean;
 }
 
-/** Statistics about the myelinate instance */
-export interface MyelinateStats {
+/** Statistics about the myelin instance */
+export interface MyelinStats {
   ruleCount: number;
   totalDecisions: number;
   ruleDecisions: number;

@@ -1,29 +1,29 @@
 /**
- * myelinate
+ * myelin
  *
  * Stop paying your LLM to make the same decision twice.
  * Crystallize repeated AI decisions into zero-cost rules.
  *
  * @example
  * ```typescript
- * import { createMyelinate } from 'myelinate';
+ * import { createMyelin } from 'myelin';
  *
- * const myelinate = createMyelinate({
+ * const myelin = createMyelin({
  *   llm: async (event) => {
  *     const response = await yourLLM.classify(event);
  *     return { action: response.action, reason: response.reason };
  *   },
  * });
  *
- * const result = await myelinate.triage({ type: 'timer', context: { idle_seconds: 30 } });
+ * const result = await myelin.triage({ type: 'timer', context: { idle_seconds: 30 } });
  * // → { action: 'skip', method: 'rule', latencyMs: 0 }
  * ```
  */
 
 import type {
-  MyelinateConfig,
-  Myelinate,
-  MyelinateStats,
+  MyelinConfig,
+  Myelin,
+  MyelinStats,
   TriageEvent,
   TriageResult,
   Rule,
@@ -38,9 +38,9 @@ import { findCandidates, candidateToRule } from './crystallizer.ts';
 
 // Re-export all types
 export type {
-  MyelinateConfig,
-  Myelinate,
-  MyelinateStats,
+  MyelinConfig,
+  Myelin,
+  MyelinStats,
   TriageEvent,
   TriageResult,
   Rule,
@@ -59,32 +59,32 @@ export { matchRule, findMatchingRule, loadRules, saveRules } from './rules.ts';
 export { logDecision, readDecisionLog, getLlmDecisions } from './telemetry.ts';
 export { findCandidates, candidateToRule } from './crystallizer.ts';
 
-const DEFAULT_RULES_PATH = './myelinate-rules.json';
-const DEFAULT_LOG_PATH = './myelinate-decisions.jsonl';
+const DEFAULT_RULES_PATH = './myelin-rules.json';
+const DEFAULT_LOG_PATH = './myelin-decisions.jsonl';
 const DEFAULT_MIN_OCCURRENCES = 10;
 const DEFAULT_MIN_CONSISTENCY = 0.95;
 
 /**
- * Create a myelinate instance.
+ * Create a myelin instance.
  *
- * myelinate watches your LLM's decisions and promotes stable patterns
+ * myelin watches your LLM's decisions and promotes stable patterns
  * to zero-cost deterministic rules. Like adaptive immunity becoming innate.
  *
  * @example Default (triage) usage:
  * ```typescript
- * const myelinate = createMyelinate({ llm: async (event) => ({ action: 'skip', reason: '...' }) });
- * const result = await myelinate.triage(event);
+ * const myelin = createMyelin({ llm: async (event) => ({ action: 'skip', reason: '...' }) });
+ * const result = await myelin.triage(event);
  * ```
  *
  * @example Custom actions (e.g. model routing):
  * ```typescript
- * const myelinate = createMyelinate<'gpt-4' | 'haiku' | 'local'>({
+ * const myelin = createMyelin<'gpt-4' | 'haiku' | 'local'>({
  *   llm: async (event) => ({ action: 'haiku', reason: 'simple query' }),
  * });
- * const result = await myelinate.process(event); // → { action: 'haiku', method: 'rule', ... }
+ * const result = await myelin.process(event); // → { action: 'haiku', method: 'rule', ... }
  * ```
  */
-export function createMyelinate<A extends string = DefaultAction>(config: MyelinateConfig<A>): Myelinate<A> {
+export function createMyelin<A extends string = DefaultAction>(config: MyelinConfig<A>): Myelin<A> {
   const rulesPath = config.rulesPath ?? DEFAULT_RULES_PATH;
   const logPath = config.logPath ?? DEFAULT_LOG_PATH;
   const autoLog = config.autoLog ?? true;
@@ -188,7 +188,7 @@ export function createMyelinate<A extends string = DefaultAction>(config: Myelin
     return rule;
   }
 
-  function stats(): MyelinateStats {
+  function stats(): MyelinStats {
     return {
       ruleCount: rules.length,
       totalDecisions,

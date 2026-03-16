@@ -1,5 +1,5 @@
 /**
- * myelinate — Telemetry
+ * myelin — Telemetry
  *
  * Logs every decision for analysis and crystallization.
  * Append-only JSONL format — human-readable, grep-friendly.
