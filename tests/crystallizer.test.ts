@@ -62,6 +62,35 @@ describe('findCandidates', () => {
     assert.equal(result.length, 2);
   });
 
+  it('captures string context values in crystallized rules', () => {
+    const logs = Array.from({ length: 10 }, () => makeLog({
+      event: { type: 'alert', source: 'dependabot', context: { repo: 'my-lib', severity: 'low' } },
+      action: 'skip',
+      reason: 'dependabot low severity',
+    }));
+    const result = findCandidates(logs, { minOccurrences: 5, minConsistency: 0.9 });
+    assert.equal(result.length, 1);
+    assert.equal(result[0].match.type, 'alert');
+    assert.equal(result[0].match.source, 'dependabot');
+    assert.ok(result[0].match.context, 'match should have context conditions');
+    assert.equal(result[0].match.context!.repo, 'my-lib');
+    assert.equal(result[0].match.context!.severity, 'low');
+  });
+
+  it('skips string context when values vary', () => {
+    const logs = Array.from({ length: 10 }, (_, i) => makeLog({
+      event: { type: 'alert', context: { repo: `repo-${i % 3}`, changed: false } },
+      action: 'skip',
+    }));
+    const result = findCandidates(logs, { minOccurrences: 5, minConsistency: 0.9 });
+    assert.equal(result.length, 1);
+    // 'repo' varies across events, so should NOT be in context conditions
+    const ctx = result[0].match.context;
+    assert.ok(ctx, 'should have context for boolean');
+    assert.equal(ctx!.changed, false);
+    assert.equal(ctx!.repo, undefined, 'varying string should not be captured');
+  });
+
   it('sorts by occurrences descending', () => {
     const manyLogs = Array.from({ length: 20 }, () => makeLog());
     const fewerLogs = Array.from({ length: 12 }, () => makeLog({

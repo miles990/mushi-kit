@@ -11,6 +11,9 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "bin": {
+    "myelin": "./dist/cli.js"
+  },
   "files": [
     "dist",
     "README.md",
@@ -50,5 +53,8 @@
   "devDependencies": {
     "@types/node": "^25.5.0",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1"
   }
 }

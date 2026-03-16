@@ -100,6 +100,14 @@ function buildMatchFromGroup(logs: DecisionLog<string>[]): RuleMatch {
           contextConditions[key] = { lte: upperBound };
         }
       }
+
+      // All string values the same → exact match
+      if (values.every(v => typeof v === 'string')) {
+        const strValues = new Set(values as string[]);
+        if (strValues.size === 1) {
+          contextConditions[key] = [...strValues][0];
+        }
+      }
     }
 
     if (Object.keys(contextConditions).length > 0) {
