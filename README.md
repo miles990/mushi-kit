@@ -316,6 +316,16 @@ This isn't novel computer science. It's the same process everywhere:
 
 **Intelligence is expensive. Crystallized intelligence is free.**
 
+## Theoretical Foundations
+
+myelin is grounded in three independent theoretical lineages:
+
+- **Cattell's Investment Theory** (1943) — fluid intelligence "invests" into crystallized intelligence over time
+- **Nonaka's SECI Model** (1995) — tacit knowledge *crystallizes* into explicit, shareable forms
+- **Nurture-First Development** (arXiv:2603.10808, 2026) — four-stage Knowledge Crystallization Cycle for AI agents
+
+For the full theoretical framework, relationship to existing work, and academic references, see **[THEORY.md](./THEORY.md)**.
+
 ## Why Not Just Cache / Use Better Prompts?
 
 **vs. Caching (GPTCache, etc.)**: Caching stores exact responses. myelin learns *patterns* — it generalizes across similar inputs and produces deterministic rules you can inspect, edit, and version-control.
