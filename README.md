@@ -209,6 +209,56 @@ Conservative by default — a wrong rule is worse than no rule.
 - **Rules file corrupt** → fall back to LLM-only mode
 - **Unknown input** → LLM handles it, logs for future crystallization
 
+## Three-Layer Architecture (Closed Loop)
+
+myelin isn't just a rule engine — it's a self-reinforcing learning loop with three layers, where each layer feeds back to the lower layers.
+
+```
+Layer 1: Events → Rules       (specific pattern-action pairs)
+Layer 2: Rules → Templates    (abstract decision patterns)
+Layer 3: Templates → Methodology (decision framework with dimensions + principles)
+  ↓ feedback ↓
+Layer 1: methodology lowers crystallization thresholds for aligned patterns
+Layer 2: templates compress N rules into 1 broader rule
+```
+
+### How the Loop Works
+
+```
+More decisions → more rules → templates emerge → methodology crystallizes
+→ methodology lowers thresholds → faster crystallization → fewer LLM calls
+→ remaining calls are novel → new rules → updated templates → updated methodology
+```
+
+**Layer 1: Crystallization** — Your LLM makes decisions. myelin fingerprints each event structurally (ignoring specific values), groups them, and when a pattern reaches 10+ occurrences with 95%+ consistency, it becomes a deterministic rule.
+
+**Layer 2: Templates** — The same fingerprint algorithm is applied recursively to rules themselves. Similar rules are grouped into templates that capture the abstract pattern. Example: rules for "bump axios → skip", "bump lodash → skip", "bump react → skip" become one template: "automated dependency updates → skip".
+
+**Layer 3: Methodology** — Templates are analyzed to extract decision dimensions (e.g., "scope", "risk", "confidence source") and principles (e.g., "skip when scope is low and source is automated"). This is the crystallization of crystallizations — meta²-learning.
+
+### The Feedback Mechanism
+
+The methodology feeds back into crystallization:
+
+- **Methodology-aware thresholds**: A new pattern that aligns with an existing principle needs fewer observations (down to 50% of normal threshold). The system "already knows" this type of decision is reliable.
+- **Rule compression**: When a template covers 3+ rules with 10+ total hits, `optimize()` merges them into a single broader rule. The rule table shrinks, matching is faster, the system is more general.
+- **Evolution tracking**: `evolve()` detects what changed between distillation cycles — new principles, retired dimensions, compressed rules.
+- **LLM guidance**: `buildGuidance()` formats the methodology as text you can inject into your LLM's system prompt, so it makes more consistent decisions from the start.
+
+### Usage
+
+```typescript
+// Full evolution cycle: distill → optimize → detect changes
+const result = myelin.evolve();
+console.log(result.guidance);       // inject this into your LLM prompt
+console.log(result.events);         // what changed since last time
+console.log(result.optimized);      // rule compression results
+
+// Or step by step:
+const { rules, templates, methodology, methodologyText } = myelin.distill();
+const optimized = myelin.optimize();
+```
+
 ## API
 
 ### `createMyelin<A>(config)`
@@ -279,6 +329,40 @@ myelin.addRule({
   action: 'skip',
   reason: 'low severity alerts are noise',
 });
+```
+
+### `myelin.distill()`
+
+Run all three layers: crystallize pending candidates → extract templates → extract methodology.
+
+```typescript
+const { rules, templates, methodology, methodologyText } = myelin.distill();
+// methodologyText is a human-readable string you can inject into LLM prompts
+```
+
+### `myelin.optimize(opts?)`
+
+Compress rules using templates. Merges N specific rules into 1 broader rule when a template is strong enough.
+
+```typescript
+const result = myelin.optimize({ minTemplateHits: 10 });
+// { rules, mergedRuleIds, newMergedRules, compressionRatio }
+```
+
+### `myelin.evolve(prevMethodology?)`
+
+Full evolution cycle: distill → optimize → detect changes → build guidance.
+
+```typescript
+const result = myelin.evolve();
+result.guidance;        // string — inject into LLM system prompt
+result.events;          // EvolutionEvent[] — what changed
+result.optimized;       // OptimizeResult — compression details
+result.distill;         // DistillResult — all three layers
+
+// Pass previous methodology to detect evolution:
+const second = myelin.evolve(firstResult.distill.methodology);
+second.events; // → [{ type: 'principle_emerged', description: '...' }]
 ```
 
 ## Decision Log
