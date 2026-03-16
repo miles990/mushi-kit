@@ -53,3 +53,38 @@ export function readDecisionLog(path: string): DecisionLog<string>[] {
 export function getLlmDecisions(logs: DecisionLog<string>[]): DecisionLog<string>[] {
   return logs.filter(log => log.method === 'llm');
 }
+
+/** Crystallization event types */
+export type CrystallizationEvent = 'candidate_found' | 'rule_crystallized' | 'rule_removed';
+
+interface CrystallizationLog {
+  ts: string;
+  event: CrystallizationEvent;
+  ruleId?: string;
+  match?: unknown;
+  action?: string;
+  reason?: string;
+  occurrences?: number;
+  consistency?: number;
+}
+
+/** Log a crystallization event (candidate found, rule promoted, rule removed) */
+export function logCrystallization(
+  path: string,
+  event: CrystallizationEvent,
+  details: Omit<CrystallizationLog, 'ts' | 'event'>,
+): void {
+  const entry: CrystallizationLog = {
+    ts: new Date().toISOString(),
+    event,
+    ...details,
+  };
+
+  try {
+    const dir = dirname(path);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    appendFileSync(path, JSON.stringify(entry) + '\n', 'utf-8');
+  } catch {
+    // fire-and-forget
+  }
+}

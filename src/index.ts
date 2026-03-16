@@ -33,7 +33,7 @@ import type {
   CrystallizationCandidate,
 } from './types.ts';
 import { findMatchingRule, loadRules, saveRules, generateRuleId } from './rules.ts';
-import { logDecision, readDecisionLog } from './telemetry.ts';
+import { logDecision, readDecisionLog, logCrystallization } from './telemetry.ts';
 import { findCandidates, candidateToRule } from './crystallizer.ts';
 
 // Re-export all types
@@ -56,8 +56,10 @@ export type {
 
 // Re-export utilities for advanced usage
 export { matchRule, findMatchingRule, loadRules, saveRules } from './rules.ts';
-export { logDecision, readDecisionLog, getLlmDecisions } from './telemetry.ts';
+export { logDecision, readDecisionLog, getLlmDecisions, logCrystallization } from './telemetry.ts';
 export { findCandidates, candidateToRule } from './crystallizer.ts';
+export { startProxy } from './proxy.ts';
+export type { ProxyConfig } from './proxy.ts';
 
 const DEFAULT_RULES_PATH = './myelin-rules.json';
 const DEFAULT_LOG_PATH = './myelin-decisions.jsonl';
@@ -175,16 +177,38 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
 
   function getCandidates(opts?: { minOccurrences?: number; minConsistency?: number }): CrystallizationCandidate<A>[] {
     const logs = readDecisionLog(logPath);
-    return findCandidates<A>(logs as DecisionLog<A>[], {
+    const candidates = findCandidates<A>(logs as DecisionLog<A>[], {
       minOccurrences: opts?.minOccurrences ?? minOccurrences,
       minConsistency: opts?.minConsistency ?? minConsistency,
     });
+
+    for (const c of candidates) {
+      logCrystallization(logPath, 'candidate_found', {
+        match: c.match,
+        action: c.suggestedAction,
+        reason: c.description,
+        occurrences: c.occurrences,
+        consistency: c.consistency,
+      });
+    }
+
+    return candidates;
   }
 
   function crystallize(candidate: CrystallizationCandidate<A>): Rule<A> {
     const rule = candidateToRule(candidate);
     rules.push(rule);
     saveRules(rulesPath, rules);
+
+    logCrystallization(logPath, 'rule_crystallized', {
+      ruleId: rule.id,
+      match: rule.match,
+      action: rule.action,
+      reason: rule.reason,
+      occurrences: candidate.occurrences,
+      consistency: candidate.consistency,
+    });
+
     return rule;
   }
 
@@ -220,8 +244,16 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
   function removeRule(id: string): boolean {
     const idx = rules.findIndex(r => r.id === id);
     if (idx === -1) return false;
+    const removed = rules[idx];
     rules.splice(idx, 1);
     saveRules(rulesPath, rules);
+
+    logCrystallization(logPath, 'rule_removed', {
+      ruleId: removed.id,
+      match: removed.match,
+      action: removed.action,
+    });
+
     return true;
   }
 
