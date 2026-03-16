@@ -670,18 +670,21 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
   function toSmallModelPrompt(): string {
     const templates = extractTemplates(rules);
     const methodology = extractMethodology(templates, rules);
+
+    if (methodology.principles.length === 0 && rules.length === 0) return '';
+
     const lines: string[] = [];
 
-    lines.push('RULES:');
     if (methodology.principles.length > 0) {
+      lines.push('RULES:');
       for (const p of methodology.principles.slice(0, 5)) {
         lines.push(`- WHEN ${p.when} THEN ${p.then}`);
       }
     }
 
     if (rules.length > 0) {
-      const topRules = [...rules].sort((a, b) => b.hitCount - a.hitCount).slice(0, 5);
       lines.push('TOP PATTERNS:');
+      const topRules = [...rules].sort((a, b) => b.hitCount - a.hitCount).slice(0, 5);
       for (const r of topRules) {
         lines.push(`- ${r.action}: ${r.reason.slice(0, 80)}`);
       }
