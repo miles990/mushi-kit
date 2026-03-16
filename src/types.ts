@@ -126,6 +126,12 @@ export interface Myelin<A extends string = DefaultAction> {
   addRule: (rule: Omit<Rule<A>, 'id' | 'createdAt' | 'hitCount'>) => Rule<A>;
   /** Remove a rule by ID */
   removeRule: (id: string) => boolean;
+  /** Layer 2: Extract templates from current rules */
+  getTemplates: () => Template<A>[];
+  /** Layer 3: Extract methodology from templates */
+  getMethodology: () => Methodology;
+  /** Full three-layer distillation: rules → templates → methodology */
+  distill: () => DistillResult<A>;
 }
 
 /** Statistics about the myelin instance */
@@ -141,4 +147,98 @@ export interface MyelinStats {
   avgRuleLatencyMs: number;
   /** Average latency for LLM decisions */
   avgLlmLatencyMs: number;
+}
+
+// ── Layer 2: Templates ──────────────────────────────────
+
+/** A template groups similar rules into an abstract decision pattern */
+export interface Template<A extends string = DefaultAction> {
+  id: string;
+  /** Human-readable name (e.g. "Small low-risk PRs → approve") */
+  name: string;
+  /** IDs of rules that compose this template */
+  ruleIds: string[];
+  /** The common action across all rules in this group */
+  action: A;
+  /** Structural invariants — what's always the same */
+  invariants: TemplateInvariants;
+  /** Context keys that vary across rules — these are NOT decision-critical */
+  variables: string[];
+  /** Number of rules in this template */
+  ruleCount: number;
+  /** Aggregate hitCount across all rules */
+  totalHits: number;
+  createdAt: string;
+}
+
+/** What's structurally identical across all rules in a template */
+export interface TemplateInvariants {
+  eventType?: string;
+  source?: string;
+  /** Context keys present in ALL rules, with their condition type */
+  stableContext: Record<string, 'boolean' | 'numeric_range' | 'exact_string' | 'pattern'>;
+}
+
+// ── Layer 3: Methodology ────────────────────────────────
+
+/** A decision dimension — an axis along which decisions vary */
+export interface Dimension {
+  /** Name of the dimension (e.g. "scope", "risk", "confidence_source") */
+  name: string;
+  /** How to assess this dimension */
+  description: string;
+  /** Context keys that indicate this dimension */
+  indicators: string[];
+  /** Observed levels from data (e.g. ["low", "medium", "high"]) */
+  levels: string[];
+  /** Relative importance — fraction of templates that use this dimension */
+  weight: number;
+}
+
+/** A decision principle — a crystallized guideline */
+export interface Principle {
+  /** Human-readable rule (e.g. "Automated dependency updates can be auto-approved") */
+  description: string;
+  /** Conditions that trigger this principle */
+  when: string;
+  /** Recommended action */
+  then: string;
+  /** Confidence based on supporting evidence (0-1) */
+  confidence: number;
+  /** Templates supporting this principle */
+  supportingTemplates: string[];
+}
+
+/** A methodology — the complete decision framework */
+export interface Methodology {
+  /** Decision dimensions identified across all templates */
+  dimensions: Dimension[];
+  /** Decision principles derived from templates */
+  principles: Principle[];
+  /** Decision matrix — maps dimension combinations to actions */
+  matrix: MatrixCell[];
+  /** Stats about the methodology's coverage */
+  templateCount: number;
+  ruleCount: number;
+  totalHits: number;
+  generatedAt: string;
+}
+
+/** A cell in the decision matrix */
+export interface MatrixCell {
+  /** Dimension name → observed level */
+  conditions: Record<string, string>;
+  /** Recommended action */
+  action: string;
+  /** How confident we are (0-1) */
+  confidence: number;
+  /** How many rules/hits support this cell */
+  support: number;
+}
+
+/** Full distillation result — all three layers */
+export interface DistillResult<A extends string = DefaultAction> {
+  rules: Rule<A>[];
+  templates: Template<A>[];
+  methodology: Methodology;
 }

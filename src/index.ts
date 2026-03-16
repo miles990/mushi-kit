@@ -31,10 +31,15 @@ import type {
   DefaultAction,
   DecisionLog,
   CrystallizationCandidate,
+  Template,
+  Methodology,
+  DistillResult,
 } from './types.ts';
 import { findMatchingRule, loadRules, saveRules, generateRuleId } from './rules.ts';
 import { logDecision, readDecisionLog, logCrystallization } from './telemetry.ts';
 import { findCandidates, candidateToRule } from './crystallizer.ts';
+import { extractTemplates, mergeTemplateToRuleFromRules } from './templates.ts';
+import { extractMethodology, formatMethodology } from './methodology.ts';
 
 // Re-export all types
 export type {
@@ -52,12 +57,23 @@ export type {
   RuleMatch,
   MatchCondition,
   DecisionLog,
+  // Layer 2
+  Template,
+  TemplateInvariants,
+  // Layer 3
+  Dimension,
+  Principle,
+  Methodology,
+  MatrixCell,
+  DistillResult,
 } from './types.ts';
 
 // Re-export utilities for advanced usage
 export { matchRule, findMatchingRule, loadRules, saveRules } from './rules.ts';
 export { logDecision, readDecisionLog, getLlmDecisions, logCrystallization } from './telemetry.ts';
 export { findCandidates, candidateToRule } from './crystallizer.ts';
+export { extractTemplates, mergeTemplateToRuleFromRules } from './templates.ts';
+export { extractMethodology, formatMethodology } from './methodology.ts';
 export { startProxy } from './proxy.ts';
 export type { ProxyConfig } from './proxy.ts';
 
@@ -257,6 +273,51 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
     return true;
   }
 
+  function getTemplates(): Template<A>[] {
+    return extractTemplates(rules);
+  }
+
+  function getMethodology(): Methodology {
+    const templates = getTemplates();
+    return extractMethodology(templates, rules);
+  }
+
+  function distill(): DistillResult<A> {
+    // Layer 1: crystallize any pending candidates into rules
+    const candidates = getCandidates();
+    for (const candidate of candidates) {
+      // Check if a rule already covers this exact pattern
+      const alreadyCovered = rules.some(r =>
+        r.action === candidate.suggestedAction &&
+        r.match.type === candidate.match.type &&
+        r.match.source === candidate.match.source &&
+        JSON.stringify(r.match.context) === JSON.stringify(candidate.match.context),
+      );
+      if (!alreadyCovered) {
+        crystallize(candidate);
+      }
+    }
+
+    // Layer 2: extract templates from rules
+    const templates = extractTemplates(rules);
+
+    // Layer 3: extract methodology from templates
+    const methodology = extractMethodology(templates, rules);
+
+    logCrystallization(logPath, 'distill_complete', {
+      rules: rules.length,
+      templates: templates.length,
+      dimensions: methodology.dimensions.length,
+      principles: methodology.principles.length,
+    });
+
+    return {
+      rules: [...rules],
+      templates,
+      methodology,
+    };
+  }
+
   return {
     process: triage,
     triage,
@@ -266,5 +327,8 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
     getRules,
     addRule,
     removeRule,
+    getTemplates,
+    getMethodology,
+    distill,
   };
 }
