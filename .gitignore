@@ -2,5 +2,5 @@ node_modules/
 dist/
 .test-tmp/
 *.jsonl
-mushi-rules.json
+myelin-rules.json
 .tmp-test/

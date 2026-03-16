@@ -2,7 +2,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, unlinkSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { createMushi } from '../src/index.ts';
+import { createMyelin } from '../src/index.ts';
 import { matchRule } from '../src/rules.ts';
 import { findCandidates } from '../src/crystallizer.ts';
 import type { TriageEvent, DecisionLog, Action, RuleMatch } from '../src/types.ts';
@@ -71,7 +71,7 @@ describe('Rule matching', () => {
   });
 });
 
-describe('createMushi', () => {
+describe('createMyelin', () => {
   beforeEach(() => {
     cleanup();
     mkdirSync(TEST_DIR, { recursive: true });
@@ -79,40 +79,40 @@ describe('createMushi', () => {
   afterEach(cleanup);
 
   it('returns LLM decision when no rules match', async () => {
-    const mushi = createMushi({
+    const myelin = createMyelin({
       llm: async () => ({ action: 'wake' as Action, reason: 'needs attention' }),
       rulesPath: RULES_PATH,
       logPath: LOG_PATH,
     });
 
-    const result = await mushi.triage({ type: 'message', context: { message_text: 'hello' } });
+    const result = await myelin.triage({ type: 'message', context: { message_text: 'hello' } });
     assert.equal(result.action, 'wake');
     assert.equal(result.method, 'llm');
     assert.ok(result.reason.includes('needs attention'));
   });
 
   it('returns rule decision when a rule matches', async () => {
-    const mushi = createMushi({
+    const myelin = createMyelin({
       llm: async () => { throw new Error('should not be called'); },
       rulesPath: RULES_PATH,
       logPath: LOG_PATH,
     });
 
     // Add a rule
-    mushi.addRule({
+    myelin.addRule({
       match: { type: 'alert' },
       action: 'wake',
       reason: 'alerts always wake',
     });
 
-    const result = await mushi.triage({ type: 'alert' });
+    const result = await myelin.triage({ type: 'alert' });
     assert.equal(result.action, 'wake');
     assert.equal(result.method, 'rule');
     assert.equal(result.latencyMs, 0);
   });
 
   it('fails open on LLM error', async () => {
-    const mushi = createMushi({
+    const myelin = createMyelin({
       llm: async () => { throw new Error('LLM is down'); },
       rulesPath: RULES_PATH,
       logPath: LOG_PATH,
@@ -120,14 +120,14 @@ describe('createMushi', () => {
       failOpenAction: 'wake',
     });
 
-    const result = await mushi.triage({ type: 'timer' });
+    const result = await myelin.triage({ type: 'timer' });
     assert.equal(result.action, 'wake');
     assert.equal(result.method, 'error');
     assert.ok(result.reason.includes('LLM is down'));
   });
 
   it('throws on LLM error when failOpen is false', async () => {
-    const mushi = createMushi({
+    const myelin = createMyelin({
       llm: async () => { throw new Error('LLM is down'); },
       rulesPath: RULES_PATH,
       logPath: LOG_PATH,
@@ -135,34 +135,34 @@ describe('createMushi', () => {
     });
 
     await assert.rejects(
-      () => mushi.triage({ type: 'timer' }),
+      () => myelin.triage({ type: 'timer' }),
       { message: 'LLM is down' },
     );
   });
 
   it('tracks stats correctly', async () => {
     let callCount = 0;
-    const mushi = createMushi({
+    const myelin = createMyelin({
       llm: async () => { callCount++; return { action: 'skip' as Action, reason: 'quiet' }; },
       rulesPath: RULES_PATH,
       logPath: LOG_PATH,
     });
 
     // Add a rule
-    mushi.addRule({
+    myelin.addRule({
       match: { type: 'alert' },
       action: 'wake',
       reason: 'alerts always wake',
     });
 
     // 2 rule hits + 3 LLM calls
-    await mushi.triage({ type: 'alert' });
-    await mushi.triage({ type: 'alert' });
-    await mushi.triage({ type: 'timer' });
-    await mushi.triage({ type: 'timer' });
-    await mushi.triage({ type: 'timer' });
+    await myelin.triage({ type: 'alert' });
+    await myelin.triage({ type: 'alert' });
+    await myelin.triage({ type: 'timer' });
+    await myelin.triage({ type: 'timer' });
+    await myelin.triage({ type: 'timer' });
 
-    const s = mushi.stats();
+    const s = myelin.stats();
     assert.equal(s.totalDecisions, 5);
     assert.equal(s.ruleDecisions, 2);
     assert.equal(s.llmDecisions, 3);
@@ -172,45 +172,45 @@ describe('createMushi', () => {
   });
 
   it('adds and removes rules', async () => {
-    const mushi = createMushi({
+    const myelin = createMyelin({
       llm: async () => ({ action: 'skip' as Action, reason: 'default' }),
       rulesPath: RULES_PATH,
       logPath: LOG_PATH,
     });
 
-    const rule = mushi.addRule({
+    const rule = myelin.addRule({
       match: { type: 'timer', context: { idle_seconds: { lte: 300 } } },
       action: 'skip',
       reason: 'recently active',
     });
 
-    assert.equal(mushi.getRules().length, 1);
+    assert.equal(myelin.getRules().length, 1);
     assert.ok(rule.id);
     assert.ok(rule.createdAt);
 
-    const removed = mushi.removeRule(rule.id);
+    const removed = myelin.removeRule(rule.id);
     assert.equal(removed, true);
-    assert.equal(mushi.getRules().length, 0);
+    assert.equal(myelin.getRules().length, 0);
   });
 
   it('persists rules across instances', async () => {
     // Instance 1: add rules
-    const mushi1 = createMushi({
+    const m1 = createMyelin({
       llm: async () => ({ action: 'skip' as Action, reason: 'default' }),
       rulesPath: RULES_PATH,
       logPath: LOG_PATH,
     });
-    mushi1.addRule({ match: { type: 'alert' }, action: 'wake', reason: 'test' });
+    m1.addRule({ match: { type: 'alert' }, action: 'wake', reason: 'test' });
 
     // Instance 2: should see the rules
-    const mushi2 = createMushi({
+    const m2 = createMyelin({
       llm: async () => { throw new Error('should not be called'); },
       rulesPath: RULES_PATH,
       logPath: LOG_PATH,
     });
 
-    assert.equal(mushi2.getRules().length, 1);
-    const result = await mushi2.triage({ type: 'alert' });
+    assert.equal(m2.getRules().length, 1);
+    const result = await m2.triage({ type: 'alert' });
     assert.equal(result.action, 'wake');
     assert.equal(result.method, 'rule');
   });
@@ -299,7 +299,7 @@ describe('Full crystallization flow', () => {
 
   it('end-to-end: LLM decisions → candidates → crystallized rules', async () => {
     let llmCallCount = 0;
-    const mushi = createMushi({
+    const myelin = createMyelin({
       llm: async (event) => {
         llmCallCount++;
         const idle = (event.context?.idle_seconds as number) ?? Infinity;
@@ -313,23 +313,23 @@ describe('Full crystallization flow', () => {
 
     // Phase 1: Train with LLM decisions
     for (let i = 0; i < 10; i++) {
-      await mushi.triage({ type: 'timer', context: { idle_seconds: 100 + i * 10 } });
+      await myelin.triage({ type: 'timer', context: { idle_seconds: 100 + i * 10 } });
     }
     assert.equal(llmCallCount, 10);
 
     // Phase 2: Find candidates
-    const candidates = mushi.getCandidates({ minOccurrences: 5, minConsistency: 0.9 });
+    const candidates = myelin.getCandidates({ minOccurrences: 5, minConsistency: 0.9 });
     assert.ok(candidates.length > 0);
     assert.equal(candidates[0].suggestedAction, 'skip'); // All were < 300s
 
     // Phase 3: Crystallize
-    const rule = mushi.crystallize(candidates[0]);
+    const rule = myelin.crystallize(candidates[0]);
     assert.ok(rule.id);
     assert.equal(rule.action, 'skip');
 
     // Phase 4: Verify rules now handle the pattern
     llmCallCount = 0;
-    const result = await mushi.triage({ type: 'timer', context: { idle_seconds: 150 } });
+    const result = await myelin.triage({ type: 'timer', context: { idle_seconds: 150 } });
     assert.equal(result.method, 'rule');
     assert.equal(result.action, 'skip');
     assert.equal(llmCallCount, 0); // LLM not called!

@@ -1,5 +1,5 @@
 {
-  "name": "mushi-kit",
+  "name": "myelinate",
   "version": "0.1.0",
   "description": "Stop paying your LLM to make the same decision twice. Crystallize repeated AI decisions into zero-cost rules.",
   "type": "module",
@@ -29,15 +29,17 @@
     "crystallization",
     "llm",
     "decision",
-    "optimization"
+    "optimization",
+    "myelin",
+    "myelination"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/miles990/mushi-kit.git"
+    "url": "git+https://github.com/miles990/myelin.git"
   },
-  "homepage": "https://github.com/miles990/mushi-kit#readme",
+  "homepage": "https://github.com/miles990/myelin#readme",
   "bugs": {
-    "url": "https://github.com/miles990/mushi-kit/issues"
+    "url": "https://github.com/miles990/myelin/issues"
   },
   "author": "Kuro <kuro@kuro.page>",
   "license": "MIT",
