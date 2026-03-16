@@ -4,6 +4,8 @@
 
 myelin watches your LLM's outputs, finds repeated patterns, and crystallizes them into instant, zero-cost rules — automatically. Works with any LLM, any action type, any classification task.
 
+> **Grounded in research, not hype.** myelin implements the Knowledge Crystallization Cycle from [Cattell's Investment Theory (1943)](https://psycnet.apa.org/doiLanding?doi=10.1037%2Fh0046743), [Nonaka's SECI Model (1995)](https://global.oup.com/academic/product/the-knowledge-creating-company-9780195092691), and [Nurture-First Development (arXiv:2603.10808)](https://arxiv.org/abs/2603.10808). Backed by 26 academic references across cognitive science, knowledge management, and small model research. See **[THEORY.md](./THEORY.md)** for the full theoretical framework.
+
 ```
 Week 1:  ████████████████████░░░░  78% LLM
 Week 2:  █████░░░░░░░░░░░░░░░░░░░  25% LLM
@@ -402,13 +404,17 @@ This isn't novel computer science. It's the same process everywhere:
 
 ## Theoretical Foundations
 
-myelin is grounded in three independent theoretical lineages:
+myelin is grounded in three independent theoretical lineages that each discovered the same phenomenon: **fluid, expensive cognition crystallizing into fixed, efficient patterns over time.**
 
-- **Cattell's Investment Theory** (1943) — fluid intelligence "invests" into crystallized intelligence over time
-- **Nonaka's SECI Model** (1995) — tacit knowledge *crystallizes* into explicit, shareable forms
-- **Nurture-First Development** (arXiv:2603.10808, 2026) — four-stage Knowledge Crystallization Cycle for AI agents
+| Lineage | Key Insight | Year |
+|---------|-------------|------|
+| **[Cattell's Investment Theory](https://psycnet.apa.org/doiLanding?doi=10.1037%2Fh0046743)** | Fluid intelligence (Gf) "invests" into crystallized intelligence (Gc) — exactly what myelin does with LLM decisions | 1943 |
+| **[Nonaka's SECI Model](https://global.oup.com/academic/product/the-knowledge-creating-company-9780195092691)** | Tacit knowledge *crystallizes* into explicit, shareable forms — Nonaka's own word | 1995 |
+| **[Nurture-First Development](https://arxiv.org/abs/2603.10808)** | Four-stage Knowledge Crystallization Cycle for AI agents — validated on 12-week study (38% → 74% useful analysis) | 2026 |
 
-For the full theoretical framework, relationship to existing work, and academic references, see **[THEORY.md](./THEORY.md)**.
+Additional research backing: [NVIDIA on small models for agentic AI](https://arxiv.org/abs/2506.02153), [ETH Zurich's non-inferability principle](https://arxiv.org/abs/2602.11988), [RouteLLM](https://arxiv.org/abs/2406.18665), [FrugalGPT](https://arxiv.org/abs/2305.05176), and 18 more papers.
+
+**[THEORY.md](./THEORY.md)** — Full framework with 26 academic references, quantitative models, small model research, and relationship to every comparable approach.
 
 ## Why Not Just Cache / Use Better Prompts?
 
