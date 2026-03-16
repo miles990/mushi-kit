@@ -342,6 +342,114 @@ Critically, the LLM's role is **not** to crystallize patterns — it's to make d
 
 ---
 
+## Where Small Models Do Better
+
+The crystallization pipeline addresses the most common case: replacing LLM decisions with deterministic rules. But between "full LLM inference" and "deterministic rule," there's a middle layer where **small models (≤3B parameters) outperform large models** — and this layer is critical for the patterns that are learnable but too complex for regex.
+
+### The Classification Dominance
+
+Most production LLM decisions are **classification**, not generation. For classification tasks, model size is the wrong variable — **task-specific fine-tuning** is what matters.
+
+> Fine-tuned small LLMs significantly outperform zero-shot generative AI models in text classification — across sentiment, stance detection, emotion, and topic labeling. The margin grows for domain-specific tasks. — Shekhar et al. (2024). arXiv:[2406.08660](https://arxiv.org/abs/2406.08660)
+
+| Task | Small Model Result | Large Model Result | Source |
+|------|-------------------|-------------------|--------|
+| Text classification (all tasks) | Fine-tuned small wins | GPT-4 zero-shot loses | arXiv:2406.08660 |
+| Binary classification (F1) | 1B fine-tuned: 0.865 | 70B zero-shot: 0.800 | Li et al. arXiv:2505.16078 |
+| Math benchmarks | Qwen2.5-0.5B wins | Gemma2-2.6B loses | arXiv:2412.15115 |
+| Chatbot Arena Elo | Gemma 2 2B: 1126 | Mixtral 8x7B: 1114 | arXiv:2408.00118 |
+| Diabetes domain QA | 7B: 87.2% accuracy | GPT-4: lower | Multiple reports |
+| Chain-of-thought distillation | 770M T5 beats | 540B PaLM loses | arXiv:2305.02301 |
+
+### Key Research: Small Models in Agentic Systems
+
+**NVIDIA Research (2025)** made the strongest case:
+
+> Small Language Models are the future of Agentic AI. Agentic systems execute small, specialized, repetitive tasks — exactly what SLMs are optimized for. SLMs "easily outperform larger models" on specialized agentic tasks. — Belcak, Heinrich et al. (2025). arXiv:[2506.02153](https://arxiv.org/abs/2506.02153)
+
+Tasks appropriate for small models in agent systems: tool call parameter extraction, intent classification, structured output formatting, action selection from fixed menu, context summarization, simple QA from retrieved context.
+
+### The Right-Sizing Table
+
+| Query Type | Optimal Model Size | Cost vs GPT-4 | Source |
+|-----------|-------------------|---------------|--------|
+| Binary/multi-class classification | 135M–1B fine-tuned | >99% savings | arXiv:2406.08660 |
+| Named entity recognition | 1–3B specialized | >95% savings | SAS Dec 2025 |
+| Domain-specific QA | 1–3B fine-tuned | >95% savings | Multiple |
+| Narrow code generation | 3B code-specialized | >90% savings | arXiv:2412.15115 |
+| Math with verification | 3–7B math-specific | >80% savings | Qwen2.5-Math |
+| Intent routing | 1B classifier | 85% savings | RouteLLM, arXiv:2406.18665 |
+| General coding | 7–13B | ~60% savings | — |
+| Novel reasoning / open-ended | 70B+ or frontier | baseline | — |
+
+### Why Small Models Beat Large Models on Triage
+
+Three independent research lines converge on the same conclusion:
+
+**1. CoT hurts simple decisions** (Li et al., ACL 2025):
+> Chain-of-Thought **hurts** small model performance on classification — overthinking simple decisions degrades accuracy. ModernBERT (149M) needs only 1.72GB RAM vs Llama-1B's 25.78GB — 15× more efficient. — arXiv:[2505.16078](https://arxiv.org/abs/2505.16078)
+
+**2. Reasoning models lose controllability** (Carroll & Korbak, 2026):
+> Larger reasoning models have **lower** Chain-of-Thought controllability. Small models used for triage are inherently more transparent and auditable. — arXiv:[2603.05706](https://arxiv.org/abs/2603.05706)
+
+**3. Intelligence can backfire under scarcity** (Johnson, 2026):
+> When resources are scarce (C/N < 0.5), simpler models outperform smarter ones. Model-size inversion is real and predictable. For triage under token budget scarcity, the smallest adequate model is mathematically optimal. — arXiv:[2603.12129](https://arxiv.org/abs/2603.12129)
+
+### Distillation: Making Large Model Knowledge Portable
+
+The most powerful technique for creating effective small models: **distill** the large model's reasoning into training data for the small model.
+
+**Distilling Step-by-Step** (Hsieh et al., 2023):
+> Train small model on `(input, chain-of-thought rationale, label)` instead of just `(input, label)`. A **770M T5 beats 540B PaLM** with 80% of the training data. The large model's reasoning process is more valuable than its outputs alone. — arXiv:[2305.02301](https://arxiv.org/abs/2305.02301)
+
+**Agent Distillation** (Oct 2025):
+> Generate domain-specific datasets from manuals, use LLM to generate reasoning trajectories, fine-tune small model on the result. 14% improvement over base. — arXiv:[2510.00482](https://arxiv.org/abs/2510.00482)
+
+### Small Model Families Worth Knowing
+
+| Family | Key Size | Strengths | Source |
+|--------|---------|-----------|--------|
+| **Qwen2.5/3** (Alibaba) | 0.5B, 1.5B, 3B | Math, code, multilingual; 0.5B beats Gemma2-2.6B on math | arXiv:[2412.15115](https://arxiv.org/abs/2412.15115), [2505.09388](https://arxiv.org/abs/2505.09388) |
+| **Phi-3/4** (Microsoft) | 3.8B | Textbook-quality data > scale; matches GPT-3.5, 98% less compute | arXiv:[2404.14219](https://arxiv.org/abs/2404.14219) |
+| **Gemma 2/3** (Google) | 2B, 4B | #1 on LMArena for compact models; beats Mixtral 8x7B | arXiv:[2408.00118](https://arxiv.org/abs/2408.00118), [2503.19786](https://arxiv.org/abs/2503.19786) |
+| **SmolLM2** (HuggingFace) | 135M, 360M, 1.7B | Runs on Raspberry Pi (4-bit); competitive with 7B+ | HuggingFace docs |
+
+### myelin's Three-Layer Cost Model
+
+```
+Layer 1: Deterministic Rules  — $0, <1ms    (crystallized patterns)
+Layer 2: Small Model          — ~$0, <200ms (learnable but complex patterns)
+Layer 3: Large Model          — $$$, ~800ms (genuinely novel inputs)
+
+         myelin crystallizes: Layer 3 → Layer 1
+         Future path:         Layer 3 → Layer 2 → Layer 1
+```
+
+The endgame isn't "no LLM." It's **LLM only where LLM is necessary.** The small model layer is the bridge between "too complex for regex" and "too expensive for frontier models."
+
+### Routing Economics: The Multiplier
+
+Crystallization alone achieves up to 100% elimination. Combined with intelligent routing, the economics compound:
+
+**FrugalGPT** (Chen et al., 2023):
+> 98% cost reduction while matching GPT-4 quality, or 4% quality improvement at the same cost. Cascade architecture learns which model to use per query type. — arXiv:[2305.05176](https://arxiv.org/abs/2305.05176)
+
+**RouteLLM** (Ong et al., ICLR 2025):
+> 85% cost reduction maintaining 95% GPT-4 performance. Drop-in OpenAI client replacement. Uses BERT-based classifier as router. — arXiv:[2406.18665](https://arxiv.org/abs/2406.18665)
+
+**Confidence-Calibrated Routing** (March 2026):
+> Trains SLMs to know when to escalate. Addresses the core problem that SLMs have poorly calibrated confidence scores. — arXiv:[2603.03752](https://arxiv.org/abs/2603.03752)
+
+myelin operates **upstream** of model routing — it decides whether any model should run at all. Combined with RouteLLM-style routing for the remaining calls, the stack becomes:
+
+```
+Input → [myelin rules] → match? → instant ($0)
+                      → no match → [router] → simple? → small model (~$0)
+                                            → complex? → large model ($$$)
+```
+
+---
+
 ## Relationship to Existing Work
 
 ### myelin vs NFD (arXiv:2603.10808)
@@ -374,27 +482,95 @@ myelin automates what this community does manually. Instead of a human reviewing
 
 A-MEM organizes agent memory (Zettelkasten-inspired linking). myelin optimizes agent decisions. They solve different problems and compose naturally — an agent could use A-MEM for memory management and myelin for decision optimization.
 
-### myelin vs APC (NeurIPS 2025)
+### myelin vs APC (NeurIPS 2025, arXiv:2506.14852)
 
-Adaptive Plan Caching reuses plan templates across similar tasks. Operates at plan level, not decision level. myelin's crystallization is finer-grained (individual classification decisions) and produces deterministic rules rather than template suggestions.
+Adaptive Plan Caching reuses plan templates across similar tasks: two-stage de-contextualization (rule-based + LLM-based filter) produces generalized templates, stored as keyword→plan pairs, retrieved via O(1) exact match, adapted by a small model (LLaMA-3.1-8B). Results: 50% cost reduction, 27% latency reduction, 96.6% performance retained.
+
+APC's de-contextualization pipeline IS crystallization, applied at the plan level. myelin applies the same principle at the decision level. Both validate: pattern extraction + template reuse + small model adaptation is a production-viable architecture.
+
+### myelin vs EvolveR (arXiv:2510.16079)
+
+EvolveR distills agent trajectories into abstract strategy principles through offline self-distillation cycles. Operates at a higher abstraction level than myelin (principles vs rules). EvolveR crystallizes **why** an approach worked; myelin crystallizes **what decision** to make. Complementary layers.
+
+### myelin vs RouteLLM / FrugalGPT
+
+RouteLLM (ICLR 2025, arXiv:[2406.18665](https://arxiv.org/abs/2406.18665)) routes between two models. FrugalGPT (arXiv:[2305.05176](https://arxiv.org/abs/2305.05176)) cascades across multiple models. Both operate **within** the LLM tier — choosing which model handles a call. myelin operates **upstream** — deciding whether any model needs to handle the call at all. The three are stackable: myelin eliminates known patterns, RouteLLM routes the remainder to the cheapest adequate model.
+
+### The ETH Zurich Warning: Non-Inferability Principle
+
+> Auto-generated context files **degrade** LLM performance by -3%, while human-written ones improve it by +4%. The auto-generated content is not wrong — it's redundant. The agent already had that information from the codebase. — Gloaguen et al. (2026). arXiv:[2602.11988](https://arxiv.org/abs/2602.11988)
+
+**The non-inferability principle**: A crystallized rule has value proportional to how much it encodes information the agent **cannot** self-discover at runtime. Generic rules (things the LLM could figure out from context) = zero crystallization value. Domain-specific operational constraints (things invisible in the input) = high value.
+
+This validates myelin's approach: we crystallize **decisions** (action for a given structural pattern), not **descriptions** (what the input looks like). The decision is non-inferable — you can't know the right action without either an LLM call or a rule. The input structure is inferable — the agent can see that itself.
 
 ---
 
 ## References
 
-1. **Cattell, R.B.** (1943). The measurement of adult intelligence. *Psychological Bulletin*, 40(3), 153–193. — Original fluid vs crystallized intelligence distinction.
+### Theoretical Foundations
 
-2. **Nonaka, I. & Takeuchi, H.** (1995). *The Knowledge-Creating Company: How Japanese Companies Create the Dynamics of Innovation*. Oxford University Press. — SECI model; "crystallized" used to describe externalization of tacit knowledge (p.64).
+1. **Cattell, R.B.** (1943). The measurement of adult intelligence. *Psychological Bulletin*, 40(3), 153–193. — First published fluid (Gf) vs crystallized (Gc) intelligence distinction.
 
-3. **Chen, Y. et al.** (2026). Nurture-First Agent Development: Conversational Knowledge Crystallization. *arXiv:2603.10808*. — Four-stage crystallization cycle, three-layer cognitive architecture, 12-week financial agent validation (38% → 74% useful analysis).
+2. **Cattell, R.B.** (1963). Theory of fluid and crystallized intelligence: A critical experiment. *Journal of Educational Psychology*, 54(1), 1–22. DOI: [10.1037/h0046743](https://psycnet.apa.org/doiLanding?doi=10.1037%2Fh0046743) — Investment Theory formalized: Gf "invests" into Gc through experience.
 
-4. **Wu, Z. et al.** (2026). Trajectory-Informed Memory Generation for LLM Agents. *arXiv:2603.10600*. IBM Research. — Strategy/Recovery/Optimization tips extracted from execution trajectories. +28.5% complex task completion.
+3. **Nonaka, I.** (1994). A dynamic theory of organizational knowledge creation. *Organization Science*, 5(1), 14–37. — SECI model origin; Externalization uses "crystallized" to describe tacit→explicit knowledge conversion.
 
-5. **Yu, Z. et al.** (2025). A-MEM: Agentic Memory for LLM Agents. *NeurIPS 2025*. *arXiv:2502.12110*. — Zettelkasten-inspired dynamic memory with automatic cross-referencing.
+4. **Nonaka, I. & Takeuchi, H.** (1995). *The Knowledge-Creating Company*. Oxford University Press, p.64. — Full SECI framework; "Through externalization, rich but unsystematic tacit knowledge is *crystallized*."
 
-6. **Osmani, A.** (2026). AGENTS.md: How to Write System Prompts for AI Agents. — Uses "crystallized" to describe pattern solidification in agent context files.
+### Knowledge Crystallization in AI
 
-7. **ETH Zurich** (2026, March). Context Files and LLM Performance. — Warning: auto-generated context files may degrade performance vs human-curated ones. Supports myelin's conservative crystallization (statistical validation before promotion).
+5. **Zhang, L.** (2026). Nurture-First Agent Development: Conversational Knowledge Crystallization. arXiv:[2603.10808](https://arxiv.org/abs/2603.10808). — Four-stage crystallization cycle, three-layer cognitive architecture, 12-week financial agent validation (38% → 74% useful analysis). Most directly aligned with myelin's approach.
+
+6. **Fang, G.; Isahagian, V. et al.** (2026). Trajectory-Informed Memory Generation for Self-Improving Agent Systems. arXiv:[2603.10600](https://arxiv.org/abs/2603.10600). IBM Research. — Strategy/Recovery/Optimization tips from execution trajectories. +28.5% complex task completion.
+
+7. **Xu, W.; Liang, Z. et al.** (2025). A-MEM: Agentic Memory for LLM Agents. *NeurIPS 2025*. arXiv:[2502.12110](https://arxiv.org/abs/2502.12110). — Zettelkasten-inspired dynamic memory; new memories trigger retroactive updates to historical memories.
+
+8. **APC** (2025). Agentic Plan Caching: Test-Time Memory for Fast and Cost-Efficient LLM Agents. *NeurIPS 2025*. arXiv:[2506.14852](https://arxiv.org/abs/2506.14852). — 50% cost reduction via plan template reuse with small model adaptation.
+
+9. **Wu, R. et al.** (2025). EvolveR: Self-Evolving LLM Agents through an Experience-Driven Lifecycle. arXiv:[2510.16079](https://arxiv.org/abs/2510.16079). — Offline self-distillation of trajectories into abstract strategy principles.
+
+### Small Model Research
+
+10. **Shekhar, R. et al.** (2024). Fine-Tuned 'Small' LLMs (Still) Significantly Outperform Zero-Shot Generative AI Models in Text Classification. arXiv:[2406.08660](https://arxiv.org/abs/2406.08660). — Fine-tuned small LLMs beat GPT-4 zero-shot on every classification task tested.
+
+11. **Belcak, P.; Heinrich, G. et al.** (2025). Small Language Models are the Future of Agentic AI. arXiv:[2506.02153](https://arxiv.org/abs/2506.02153). NVIDIA Research. — SLMs outperform larger models on specialized agentic tasks; LLM-to-SLM conversion algorithm.
+
+12. **Hsieh, C. et al.** (2023). Distilling Step-by-Step! Outperforming Larger Language Models with Less Training Data and Smaller Model Sizes. arXiv:[2305.02301](https://arxiv.org/abs/2305.02301). — 770M T5 beats 540B PaLM via chain-of-thought distillation.
+
+13. **Li, Y. et al.** (2025). Small Language Models in the Real World. *ACL 2025 Industry Track*. arXiv:[2505.16078](https://arxiv.org/abs/2505.16078). — 1B fine-tuned beats 70B zero-shot (F1: 0.865 vs 0.800); CoT hurts small model classification.
+
+14. **Carroll, M.; Korbak, T. et al.** (2026). Reasoning Models Struggle to Control their Chains of Thought. arXiv:[2603.05706](https://arxiv.org/abs/2603.05706). — Larger reasoning models have lower CoT controllability; small models more auditable.
+
+15. **Johnson, N.** (2026). Increasing Intelligence Can Worsen Collective Outcomes. arXiv:[2603.12129](https://arxiv.org/abs/2603.12129). — Under resource scarcity (C/N < 0.5), simpler models outperform smarter ones.
+
+### Small Model Families
+
+16. **Qwen Team** (2025). Qwen2.5 Technical Report. arXiv:[2412.15115](https://arxiv.org/abs/2412.15115). — 0.5B–72B; Qwen2.5-0.5B outperforms Gemma2-2.6B on math.
+
+17. **Qwen Team** (2025). Qwen3 Technical Report. arXiv:[2505.09388](https://arxiv.org/abs/2505.09388). — 1.7B/4B outperform larger Qwen2.5 on >50% benchmarks.
+
+18. **Abdin, M. et al.** (2024). Phi-3 Technical Report. arXiv:[2404.14219](https://arxiv.org/abs/2404.14219). Microsoft. — Textbook-quality synthetic data > raw scale; Phi-3.5-Mini matches GPT-3.5.
+
+19. **Gemma Team** (2024). Gemma 2. arXiv:[2408.00118](https://arxiv.org/abs/2408.00118). — 2B model beats Mixtral 8x7B on Arena Elo (1126 vs 1114).
+
+20. **Gemma Team** (2025). Gemma 3. arXiv:[2503.19786](https://arxiv.org/abs/2503.19786). — #1 open compact model on LMArena.
+
+### Routing & Cost Optimization
+
+21. **Chen, L. et al.** (2023). FrugalGPT: How to Use Large Language Models While Reducing Cost and Improving Performance. arXiv:[2305.05176](https://arxiv.org/abs/2305.05176). — 98% cost reduction while matching GPT-4 quality via cascade routing.
+
+22. **Ong, I. et al.** (2025). RouteLLM: Learning to Route LLMs with Preference Data. *ICLR 2025*. arXiv:[2406.18665](https://arxiv.org/abs/2406.18665). — 85% cost reduction, 95% quality retained, BERT-based classifier router.
+
+23. **arXiv:2603.03752** (2026). Confidence-Calibrated SLM-LLM Collaboration. — Trains SLMs to know when to escalate; addresses poorly calibrated confidence scores.
+
+24. **arXiv:2510.13890** (2025). A Survey on LLM-SLM Collaboration. — Taxonomy: routing, cascading, guidance-generation, distillation pipeline.
+
+### Context & Evaluation
+
+25. **Gloaguen, T.; Mündler, N. et al.** (2026). Evaluating AGENTS.md: Are Repository-Level Context Files Helpful for Coding Agents? arXiv:[2602.11988](https://arxiv.org/abs/2602.11988). ETH Zurich. — Auto-generated context files degrade performance -3%; human-written improve +4%. Non-inferability principle.
+
+26. **Osmani, A.** (2026). AGENTS.md: How to Write System Prompts for AI Agents. — Uses "crystallized" to describe pattern solidification; community adoption of SKILL.md pattern.
 
 ---
 

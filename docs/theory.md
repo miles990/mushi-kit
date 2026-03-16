@@ -226,6 +226,54 @@ The endgame isn't "no LLM." It's **LLM only where LLM is necessary.**
 
 For the specific task of "should this input go to the LLM?" — a small model (or a crystallized rule) is not just cheaper, it's **better**.
 
+### Key Research: NVIDIA on Small Models in Agentic AI
+
+> Small Language Models are the future of Agentic AI. Agentic systems execute small, specialized, repetitive tasks — exactly what SLMs are optimized for. — Belcak et al. (2025). arXiv:[2506.02153](https://arxiv.org/abs/2506.02153). NVIDIA Research.
+
+Tasks appropriate for SLMs: tool call parameter extraction, intent classification, structured output formatting, action selection from fixed menu.
+
+### The Right-Sizing Table
+
+| Query Type | Optimal Size | Cost vs GPT-4 | Source |
+|-----------|-------------|---------------|--------|
+| Classification | 135M–1B fine-tuned | >99% savings | arXiv:2406.08660 |
+| NER / extraction | 1–3B specialized | >95% savings | SAS Dec 2025 |
+| Intent routing | 1B classifier | 85% savings | RouteLLM, arXiv:2406.18665 |
+| Domain QA | 1–3B fine-tuned | >95% savings | Multiple |
+| Narrow code gen | 3B code-specialized | >90% savings | arXiv:2412.15115 |
+| Novel reasoning | 70B+ frontier | baseline | — |
+
+### Distillation: Portable Large Model Knowledge
+
+> Train small model on `(input, chain-of-thought rationale, label)` instead of just `(input, label)`. A **770M T5 beats 540B PaLM** with 80% of training data. — Hsieh et al. (2023). arXiv:[2305.02301](https://arxiv.org/abs/2305.02301).
+
+### Small Model Families
+
+| Family | Key Size | Strengths | Source |
+|--------|---------|-----------|--------|
+| **Qwen2.5/3** | 0.5B–3B | Math, code; 0.5B beats Gemma2-2.6B on math | arXiv:[2412.15115](https://arxiv.org/abs/2412.15115) |
+| **Phi-3/4** | 3.8B | Matches GPT-3.5, 98% less compute | arXiv:[2404.14219](https://arxiv.org/abs/2404.14219) |
+| **Gemma 2/3** | 2B–4B | Beats Mixtral 8x7B on Arena | arXiv:[2408.00118](https://arxiv.org/abs/2408.00118) |
+| **SmolLM2** | 135M–1.7B | Runs on Raspberry Pi | HuggingFace |
+
+### Routing Economics: The Multiplier
+
+**FrugalGPT** (arXiv:[2305.05176](https://arxiv.org/abs/2305.05176)): 98% cost reduction via cascade routing.
+**RouteLLM** (ICLR 2025, arXiv:[2406.18665](https://arxiv.org/abs/2406.18665)): 85% cost reduction, BERT-based classifier router.
+
+myelin + routing stack:
+```
+Input → [myelin rules] → match? → instant ($0)
+                      → no match → [router] → simple? → small model (~$0)
+                                            → complex? → large model ($$$)
+```
+
+### The ETH Zurich Warning
+
+> Auto-generated context files **degrade** LLM performance by -3%. The content is redundant, not wrong. — Gloaguen et al. (2026). arXiv:[2602.11988](https://arxiv.org/abs/2602.11988). ETH Zurich.
+
+**Non-inferability principle**: crystallized rules have value proportional to information the agent **cannot** self-discover. myelin crystallizes decisions (non-inferable), not descriptions (inferable).
+
 ## Related Work
 
 ### Direct Predecessors
