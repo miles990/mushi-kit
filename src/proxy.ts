@@ -153,7 +153,12 @@ async function forwardRequest(
   const response = await fetch(url, { method, headers, body });
   const responseBody = await response.text();
   const responseHeaders: Record<string, string> = {};
-  response.headers.forEach((val, key) => { responseHeaders[key] = val; });
+  response.headers.forEach((val, key) => {
+    // fetch() auto-decompresses, so strip encoding headers to avoid client decompression errors
+    if (!['content-encoding', 'content-length'].includes(key.toLowerCase())) {
+      responseHeaders[key] = val;
+    }
+  });
 
   return { status: response.status, headers: responseHeaders, body: responseBody };
 }
@@ -178,7 +183,7 @@ async function forwardStreaming(
   // Forward status and headers
   const fwdHeaders: Record<string, string> = {};
   response.headers.forEach((val, key) => {
-    if (!['transfer-encoding', 'connection', 'keep-alive'].includes(key.toLowerCase())) {
+    if (!['transfer-encoding', 'connection', 'keep-alive', 'content-encoding', 'content-length'].includes(key.toLowerCase())) {
       fwdHeaders[key] = val;
     }
   });
@@ -444,7 +449,7 @@ export function startProxy(config: ProxyConfig): void {
       // Forward response
       const respHeaders: Record<string, string> = {};
       for (const [key, val] of Object.entries(response.headers)) {
-        if (!['transfer-encoding', 'connection', 'keep-alive'].includes(key.toLowerCase())) {
+        if (!['transfer-encoding', 'connection', 'keep-alive', 'content-encoding', 'content-length'].includes(key.toLowerCase())) {
           respHeaders[key] = val;
         }
       }
