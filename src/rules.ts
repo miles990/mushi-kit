@@ -24,8 +24,19 @@ function matchCondition(condition: MatchCondition, value: unknown): boolean {
   }
 
   // Regex pattern match
-  if ('pattern' in condition) {
+  if (typeof condition === 'object' && condition !== null && 'pattern' in condition) {
     return typeof value === 'string' && new RegExp(condition.pattern).test(value);
+  }
+
+  // Array condition matches — value must be an array
+  if (typeof condition === 'object' && condition !== null && 'includes' in condition) {
+    return Array.isArray(value) && value.includes(condition.includes);
+  }
+  if (typeof condition === 'object' && condition !== null && 'includesAny' in condition) {
+    return Array.isArray(value) && condition.includesAny.some(v => value.includes(v));
+  }
+  if (typeof condition === 'object' && condition !== null && 'includesAll' in condition) {
+    return Array.isArray(value) && condition.includesAll.every(v => value.includes(v));
   }
 
   // Numeric range match

@@ -14,7 +14,7 @@ export type DefaultAction = 'skip' | 'wake' | 'quick';
 export type Action = DefaultAction;
 
 /** How the decision was made */
-export type Method = 'rule' | 'llm' | 'error';
+export type Method = 'rule' | 'llm' | 'error' | 'observe' | 'heuristic';
 
 /** An incoming event to be triaged */
 export interface TriageEvent {
@@ -30,6 +30,12 @@ export interface TriageResult<A extends string = DefaultAction> {
   method: Method;
   latencyMs: number;
   ruleId?: string;
+  /** Optional strategy metadata — carries contextual info about how the decision was made */
+  strategy?: {
+    name: string;
+    confidence: number;
+    metadata?: Record<string, unknown>;
+  };
 }
 
 /** A crystallized rule */
@@ -57,7 +63,10 @@ export interface RuleMatch {
 export type MatchCondition =
   | string | number | boolean           // exact match
   | { lt?: number; lte?: number; gt?: number; gte?: number }  // numeric range
-  | { pattern: string };                 // regex pattern
+  | { pattern: string }                 // regex pattern
+  | { includes: string | number | boolean }   // array contains element
+  | { includesAny: (string | number | boolean)[] }  // array contains any of these
+  | { includesAll: (string | number | boolean)[] }; // array contains all of these
 
 /** A decision log entry for crystallization analysis */
 export interface DecisionLog<A extends string = DefaultAction> {
@@ -87,8 +96,11 @@ export interface CrystallizationCandidate<A extends string = DefaultAction> {
 
 /** Configuration for createMyelin */
 export interface MyelinConfig<A extends string = DefaultAction> {
-  /** Your LLM function — called only when no rule matches */
+  /** Your LLM function — called only when no rule matches (and heuristic didn't match) */
   llm: (event: TriageEvent) => Promise<{ action: A; reason: string }>;
+  /** Optional heuristic function — cheap keyword/rule-based classifier between rules and LLM.
+   *  Return { action, reason } to use heuristic result, or null to fall through to LLM. */
+  heuristic?: (event: TriageEvent) => { action: A; reason: string } | null;
   /** Path to rules JSON file (default: './myelin-rules.json') */
   rulesPath?: string;
   /** Path to decision log JSONL file (default: './myelin-decisions.jsonl') */
@@ -114,6 +126,10 @@ export interface Myelin<A extends string = DefaultAction> {
   process: (event: TriageEvent) => Promise<TriageResult<A>>;
   /** Triage an event — alias for process() (backward compatible) */
   triage: (event: TriageEvent) => Promise<TriageResult<A>>;
+  /** Observe an event without triggering rules or LLM — just log it */
+  observe: (event: TriageEvent, metadata?: Record<string, unknown>) => void;
+  /** Safe triage — never throws, always returns a result */
+  triageSafe: (event: TriageEvent) => Promise<TriageResult<A>>;
   /** Find patterns stable enough to crystallize */
   getCandidates: (opts?: { minOccurrences?: number; minConsistency?: number }) => CrystallizationCandidate<A>[];
   /** Promote a candidate to a permanent rule */
@@ -136,6 +152,18 @@ export interface Myelin<A extends string = DefaultAction> {
   optimize: (opts?: { minTemplateHits?: number }) => OptimizeResult<A>;
   /** Full evolution cycle: distill → optimize → detect changes → return guidance */
   evolve: (prev?: Methodology) => EvolutionResult<A>;
+  /** Format rules/templates/methodology as a structured prompt block for LLM injection */
+  toPromptBlock: (opts?: PromptBlockOptions) => string;
+  /** Record an episode (multi-step experience sequence) */
+  recordEpisode: (episode: Omit<Episode<A>, 'id'>) => Episode<A>;
+  /** Get all recorded episodes */
+  getEpisodes: () => Episode<A>[];
+  /** Crystallize rules from episode patterns */
+  crystallizeEpisodes: (opts?: { minEpisodes?: number; minSuccessRate?: number }) => ExperienceRule[];
+  /** Auto-distill scheduler — runs distill() if enough new decisions accumulated */
+  maybeDistill: (opts?: { minNewDecisions?: number; minIntervalMs?: number }) => DistillResult<A> | null;
+  /** Format methodology for small/fast models (shorter, structured) */
+  toSmallModelPrompt: () => string;
 }
 
 /** Statistics about the myelin instance */
@@ -144,13 +172,17 @@ export interface MyelinStats {
   totalDecisions: number;
   ruleDecisions: number;
   llmDecisions: number;
+  heuristicDecisions: number;
   errorDecisions: number;
+  observeCount: number;
   /** Percentage of decisions made by rules (0-100) */
   ruleCoverage: number;
   /** Average latency for rule decisions */
   avgRuleLatencyMs: number;
   /** Average latency for LLM decisions */
   avgLlmLatencyMs: number;
+  /** Average latency for heuristic decisions */
+  avgHeuristicLatencyMs: number;
 }
 
 // ── Layer 2: Templates ──────────────────────────────────
@@ -173,6 +205,20 @@ export interface Template<A extends string = DefaultAction> {
   /** Aggregate hitCount across all rules */
   totalHits: number;
   createdAt: string;
+  /** Optional skill metadata — populated when template tracks execution performance */
+  skillMeta?: TemplateSkillMeta;
+}
+
+/** Performance metadata for a template acting as a skill */
+export interface TemplateSkillMeta {
+  /** Average duration of actions matching this template (ms) */
+  avgDurationMs: number;
+  /** Success rate of actions matching this template (0-1) */
+  successRate: number;
+  /** Number of executions tracked */
+  executionCount: number;
+  /** Last execution timestamp */
+  lastExecutedAt?: string;
 }
 
 /** What's structurally identical across all rules in a template */
@@ -277,4 +323,97 @@ export interface EvolutionResult<A extends string = DefaultAction> {
   events: EvolutionEvent[];
   /** Formatted methodology for LLM prompt injection */
   guidance: string;
+}
+
+// ── Episodes ──────────────────────────────────────────────
+
+/** A single step in an episode */
+export interface EpisodeStep<A extends string = DefaultAction> {
+  event: TriageEvent;
+  result: TriageResult<A>;
+  timestamp: string;
+}
+
+/** A multi-step experience sequence (e.g. an OODA cycle, a task execution) */
+export interface Episode<A extends string = DefaultAction> {
+  id: string;
+  steps: EpisodeStep<A>[];
+  outcome: 'success' | 'failure' | 'partial';
+  metadata?: Record<string, unknown>;
+  startedAt: string;
+  endedAt?: string;
+}
+
+// ── Experience Rules ──────────────────────────────────────
+
+/** A rule derived from episode patterns — richer than a crystallized Rule */
+export interface ExperienceRule {
+  id: string;
+  /** Human-readable pattern description */
+  pattern: string;
+  /** Recommended action */
+  action: string;
+  /** Confidence based on episode evidence (0-1) */
+  confidence: number;
+  /** Number of episodes supporting this rule */
+  episodeCount: number;
+  /** Success rate across supporting episodes (0-1) */
+  successRate: number;
+  /** When this rule was last applied */
+  lastApplied?: string;
+  /** Number of counter-examples observed */
+  counterExamples: number;
+}
+
+// ── Prompt Block ──────────────────────────────────────────
+
+/** Options for toPromptBlock() */
+export interface PromptBlockOptions {
+  /** Include crystallized rules (default: true) */
+  includeRules?: boolean;
+  /** Include templates (default: true) */
+  includeTemplates?: boolean;
+  /** Include methodology (default: true) */
+  includeMethodology?: boolean;
+  /** Include experience rules (default: true) */
+  includeExperience?: boolean;
+  /** Maximum number of rules to include (default: 10) */
+  maxRules?: number;
+  /** Maximum number of experience rules to include (default: 5) */
+  maxExperienceRules?: number;
+  /** Format: 'xml' for XML tags, 'markdown' for markdown sections */
+  format?: 'xml' | 'markdown';
+}
+
+// ── Fleet ─────────────────────────────────────────────────
+
+/** Configuration for a fleet member */
+export interface FleetMemberConfig<A extends string = DefaultAction> {
+  name: string;
+  instance: Myelin<A>;
+}
+
+/** Aggregated fleet statistics */
+export interface FleetStats {
+  members: { name: string; stats: MyelinStats }[];
+  totalRules: number;
+  totalDecisions: number;
+  overallRuleCoverage: number;
+}
+
+// ── Stack ─────────────────────────────────────────────────
+
+/** Configuration for a hierarchical crystallization stack */
+export interface MyelinStackConfig<A extends string = DefaultAction> {
+  /** The myelin instances to stack, from L1 (most specific) to Ln (most abstract) */
+  layers: Myelin<A>[];
+  /** Auto-distill interval in milliseconds (default: disabled) */
+  autoDistillIntervalMs?: number;
+}
+
+/** Result of a stack-wide distillation */
+export interface StackDistillResult<A extends string = DefaultAction> {
+  layers: DistillResult<A>[];
+  /** Cross-layer evolution events */
+  crossLayerEvents: EvolutionEvent[];
 }

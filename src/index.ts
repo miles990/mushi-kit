@@ -36,6 +36,10 @@ import type {
   DistillResult,
   OptimizeResult,
   EvolutionResult,
+  Episode,
+  EpisodeStep,
+  ExperienceRule,
+  PromptBlockOptions,
 } from './types.ts';
 import { findMatchingRule, loadRules, saveRules, generateRuleId } from './rules.ts';
 import { logDecision, readDecisionLog, logCrystallization } from './telemetry.ts';
@@ -79,6 +83,16 @@ export type {
   OptimizeResult,
   EvolutionEvent,
   EvolutionResult,
+  // Episodes & Experience
+  Episode,
+  EpisodeStep,
+  ExperienceRule,
+  PromptBlockOptions,
+  // Fleet & Stack
+  FleetMemberConfig,
+  FleetStats,
+  MyelinStackConfig,
+  StackDistillResult,
 } from './types.ts';
 
 // Re-export utilities for advanced usage
@@ -90,6 +104,11 @@ export { extractMethodology, formatMethodology } from './methodology.ts';
 export { scoreAlignment, adjustedThreshold, buildGuidance, optimizeRules, detectEvolution } from './feedback-loop.ts';
 export { startProxy } from './proxy.ts';
 export type { ProxyConfig } from './proxy.ts';
+export { createFleet } from './fleet.ts';
+export type { MyelinFleet } from './fleet.ts';
+export { createStack } from './stack.ts';
+export type { MyelinStack } from './stack.ts';
+export { getOrCreate, getInstance, removeInstance, listInstances, clearInstances } from './singleton.ts';
 
 const DEFAULT_RULES_PATH = './myelin-rules.json';
 const DEFAULT_LOG_PATH = './myelin-decisions.jsonl';
@@ -133,8 +152,19 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
   let ruleDecisions = 0;
   let llmDecisions = 0;
   let errorDecisions = 0;
+  let heuristicDecisions = 0;
+  let observeCount = 0;
   let ruleLatencySum = 0;
   let llmLatencySum = 0;
+  let heuristicLatencySum = 0;
+
+  // Episode storage (in-memory)
+  const episodes: Episode<A>[] = [];
+  let episodeIdCounter = 0;
+
+  // maybeDistill tracking
+  let lastDistillDecisionCount = 0;
+  let lastDistillTimestamp = Date.now();
 
   async function triage(event: TriageEvent): Promise<TriageResult<A>> {
     const start = Date.now();
@@ -163,7 +193,34 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
       return result;
     }
 
-    // Phase 2: Call LLM (expensive, flexible)
+    // Phase 2: Try heuristic (cheap, keyword-based)
+    if (config.heuristic) {
+      try {
+        const heuristicResult = config.heuristic(event);
+        if (heuristicResult) {
+          const latencyMs = Date.now() - start;
+          heuristicDecisions++;
+          heuristicLatencySum += latencyMs;
+
+          const result: TriageResult<A> = {
+            action: heuristicResult.action,
+            reason: heuristicResult.reason,
+            method: 'heuristic',
+            latencyMs,
+          };
+
+          if (autoLog) {
+            logDecision(logPath, event, result.action, result.reason, 'heuristic', latencyMs);
+          }
+
+          return result;
+        }
+      } catch {
+        // Heuristic failed — fall through to LLM
+      }
+    }
+
+    // Phase 3: Call LLM (expensive, flexible)
     try {
       const llmResult = await config.llm(event);
       const latencyMs = Date.now() - start;
@@ -242,16 +299,40 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
     return rule;
   }
 
+  function observe(event: TriageEvent, metadata?: Record<string, unknown>): void {
+    observeCount++;
+    if (autoLog) {
+      const reason = metadata ? JSON.stringify(metadata) : 'observation';
+      logDecision(logPath, event, 'observe' as A, reason, 'observe', 0);
+    }
+  }
+
+  async function triageSafe(event: TriageEvent): Promise<TriageResult<A>> {
+    try {
+      return await triage(event);
+    } catch {
+      return {
+        action: failOpenAction,
+        reason: 'triageSafe: caught error — fail-open',
+        method: 'error',
+        latencyMs: 0,
+      };
+    }
+  }
+
   function stats(): MyelinStats {
     return {
       ruleCount: rules.length,
       totalDecisions,
       ruleDecisions,
       llmDecisions,
+      heuristicDecisions,
       errorDecisions,
+      observeCount,
       ruleCoverage: totalDecisions > 0 ? (ruleDecisions / totalDecisions) * 100 : 0,
       avgRuleLatencyMs: ruleDecisions > 0 ? ruleLatencySum / ruleDecisions : 0,
       avgLlmLatencyMs: llmDecisions > 0 ? llmLatencySum / llmDecisions : 0,
+      avgHeuristicLatencyMs: heuristicDecisions > 0 ? heuristicLatencySum / heuristicDecisions : 0,
     };
   }
 
@@ -309,7 +390,6 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
     });
 
     // Second pass: methodology-aware thresholds (find patterns standard pass missed)
-    const allLlmLogs = logs.filter(l => l.method === 'llm');
     const adjustedCandidates = currentMethodology.principles.length > 0
       ? findCandidates<A>(logs as DecisionLog<A>[], {
           minOccurrences: Math.max(3, Math.round(minOccurrences * 0.5)),
@@ -422,9 +502,199 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
     };
   }
 
+  function toPromptBlock(opts?: PromptBlockOptions): string {
+    const format = opts?.format ?? 'xml';
+    const includeRules = opts?.includeRules ?? true;
+    const includeTemplates = opts?.includeTemplates ?? true;
+    const includeMethodology = opts?.includeMethodology ?? true;
+    const includeExperience = opts?.includeExperience ?? true;
+    const maxRules = opts?.maxRules ?? 10;
+    const maxExperienceRules = opts?.maxExperienceRules ?? 5;
+
+    const sections: string[] = [];
+
+    if (includeRules && rules.length > 0) {
+      const topRules = [...rules].sort((a, b) => b.hitCount - a.hitCount).slice(0, maxRules);
+      if (format === 'xml') {
+        sections.push('<crystallized-rules>');
+        for (const r of topRules) {
+          sections.push(`  <rule id="${r.id}" action="${r.action}" hits="${r.hitCount}">${r.reason}</rule>`);
+        }
+        sections.push('</crystallized-rules>');
+      } else {
+        sections.push('## Crystallized Rules');
+        for (const r of topRules) {
+          sections.push(`- **${r.action}** (${r.hitCount} hits): ${r.reason}`);
+        }
+      }
+    }
+
+    if (includeTemplates) {
+      const templates = extractTemplates(rules);
+      if (templates.length > 0) {
+        if (format === 'xml') {
+          sections.push('<templates>');
+          for (const t of templates) {
+            sections.push(`  <template name="${t.name}" action="${t.action}" rules="${t.ruleCount}" hits="${t.totalHits}" />`);
+          }
+          sections.push('</templates>');
+        } else {
+          sections.push('## Templates');
+          for (const t of templates) {
+            sections.push(`- **${t.name}**: ${t.ruleCount} rules, ${t.totalHits} hits`);
+          }
+        }
+      }
+    }
+
+    if (includeMethodology) {
+      const templates = extractTemplates(rules);
+      const methodology = extractMethodology(templates, rules);
+      if (methodology.principles.length > 0) {
+        if (format === 'xml') {
+          sections.push('<methodology>');
+          for (const p of methodology.principles) {
+            sections.push(`  <principle confidence="${(p.confidence * 100).toFixed(0)}%">${p.description}</principle>`);
+          }
+          sections.push('</methodology>');
+        } else {
+          sections.push('## Methodology');
+          for (const p of methodology.principles) {
+            sections.push(`- ${p.description} (${(p.confidence * 100).toFixed(0)}%)`);
+          }
+        }
+      }
+    }
+
+    if (includeExperience) {
+      const expRules = crystallizeEpisodes();
+      if (expRules.length > 0) {
+        const topExpRules = expRules.slice(0, maxExperienceRules);
+        if (format === 'xml') {
+          sections.push('<experience-rules>');
+          for (const r of topExpRules) {
+            sections.push(`  <experience action="${r.action}" confidence="${(r.confidence * 100).toFixed(0)}%" episodes="${r.episodeCount}">${r.pattern}</experience>`);
+          }
+          sections.push('</experience-rules>');
+        } else {
+          sections.push('## Experience Rules');
+          for (const r of topExpRules) {
+            sections.push(`- **${r.action}** (${(r.confidence * 100).toFixed(0)}%, ${r.episodeCount} episodes): ${r.pattern}`);
+          }
+        }
+      }
+    }
+
+    return sections.join('\n');
+  }
+
+  function recordEpisode(episode: Omit<Episode<A>, 'id'>): Episode<A> {
+    const fullEpisode: Episode<A> = {
+      ...episode,
+      id: `ep_${Date.now()}_${++episodeIdCounter}`,
+    };
+    episodes.push(fullEpisode);
+    return fullEpisode;
+  }
+
+  function getEpisodes(): Episode<A>[] {
+    return [...episodes];
+  }
+
+  function crystallizeEpisodes(opts?: { minEpisodes?: number; minSuccessRate?: number }): ExperienceRule[] {
+    const minEps = opts?.minEpisodes ?? 3;
+    const minSuccessRate = opts?.minSuccessRate ?? 0.6;
+
+    if (episodes.length < minEps) return [];
+
+    // Group episodes by their action sequence pattern
+    const patterns = new Map<string, { episodes: Episode<A>[]; successes: number }>();
+    for (const ep of episodes) {
+      const actionSequence = ep.steps.map(s => s.result.action).join('→');
+      const entry = patterns.get(actionSequence) ?? { episodes: [], successes: 0 };
+      entry.episodes.push(ep);
+      if (ep.outcome === 'success') entry.successes++;
+      patterns.set(actionSequence, entry);
+    }
+
+    const experienceRules: ExperienceRule[] = [];
+    let ruleIdCounter = 0;
+
+    for (const [pattern, data] of patterns) {
+      if (data.episodes.length < minEps) continue;
+
+      const successRate = data.successes / data.episodes.length;
+      if (successRate < minSuccessRate) continue;
+
+      // Derive the recommended action from the most common final step
+      const finalActions = data.episodes.map(ep => ep.steps[ep.steps.length - 1]?.result.action).filter(Boolean);
+      const actionCounts = new Map<string, number>();
+      for (const a of finalActions) {
+        actionCounts.set(a, (actionCounts.get(a) ?? 0) + 1);
+      }
+      let bestAction = '';
+      let bestCount = 0;
+      for (const [action, count] of actionCounts) {
+        if (count > bestCount) { bestAction = action; bestCount = count; }
+      }
+
+      experienceRules.push({
+        id: `exp_${Date.now()}_${++ruleIdCounter}`,
+        pattern,
+        action: bestAction,
+        confidence: successRate * (data.episodes.length / episodes.length),
+        episodeCount: data.episodes.length,
+        successRate,
+        counterExamples: data.episodes.length - data.successes,
+      });
+    }
+
+    return experienceRules.sort((a, b) => b.confidence - a.confidence);
+  }
+
+  function maybeDistill(opts?: { minNewDecisions?: number; minIntervalMs?: number }): DistillResult<A> | null {
+    const minNew = opts?.minNewDecisions ?? 50;
+    const minInterval = opts?.minIntervalMs ?? 30 * 60 * 1000; // 30 minutes
+
+    const newDecisions = totalDecisions - lastDistillDecisionCount;
+    const elapsed = Date.now() - lastDistillTimestamp;
+
+    if (newDecisions < minNew && elapsed < minInterval) return null;
+
+    const result = distill();
+    lastDistillDecisionCount = totalDecisions;
+    lastDistillTimestamp = Date.now();
+    return result;
+  }
+
+  function toSmallModelPrompt(): string {
+    const templates = extractTemplates(rules);
+    const methodology = extractMethodology(templates, rules);
+    const lines: string[] = [];
+
+    lines.push('RULES:');
+    if (methodology.principles.length > 0) {
+      for (const p of methodology.principles.slice(0, 5)) {
+        lines.push(`- WHEN ${p.when} THEN ${p.then}`);
+      }
+    }
+
+    if (rules.length > 0) {
+      const topRules = [...rules].sort((a, b) => b.hitCount - a.hitCount).slice(0, 5);
+      lines.push('TOP PATTERNS:');
+      for (const r of topRules) {
+        lines.push(`- ${r.action}: ${r.reason.slice(0, 80)}`);
+      }
+    }
+
+    return lines.join('\n');
+  }
+
   return {
     process: triage,
     triage,
+    observe,
+    triageSafe,
     getCandidates,
     crystallize,
     stats,
@@ -436,5 +706,11 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
     distill,
     optimize,
     evolve,
+    toPromptBlock,
+    recordEpisode,
+    getEpisodes,
+    crystallizeEpisodes,
+    maybeDistill,
+    toSmallModelPrompt,
   };
 }
