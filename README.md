@@ -39,7 +39,7 @@ Input → [Rules] → match? → instant result (0ms, $0)
 **Requires Node.js >= 18.** ESM only (`"type": "module"` in your package.json).
 
 ```bash
-npm install myelin
+npm install myelinate
 ```
 
 ### Try It in 60 Seconds
@@ -47,7 +47,7 @@ npm install myelin
 Copy this into `demo.mjs` and run `node demo.mjs` — no API keys needed:
 
 ```javascript
-import { createMyelin } from 'myelin';
+import { createMyelin } from 'myelinate';
 
 const myelin = createMyelin({
   // Replace this with your real LLM (OpenAI, Claude, Ollama, etc.)
@@ -91,7 +91,7 @@ console.log(result);
 Replace the mock with your actual LLM call:
 
 ```javascript
-import { createMyelin } from 'myelin';
+import { createMyelin } from 'myelinate';
 import OpenAI from 'openai'; // or any LLM client
 
 const openai = new OpenAI();
@@ -116,7 +116,7 @@ const result = await myelin.process({ type: 'alert', context: { title: '...' } }
 myelin isn't limited to skip/wake/quick — use **any action type** with TypeScript generics:
 
 ```typescript
-import { createMyelin } from 'myelin';
+import { createMyelin } from 'myelinate';
 
 // Define your own action types
 type Model = 'gpt-4' | 'haiku' | 'local';
@@ -214,7 +214,7 @@ Conservative by default — a wrong rule is worse than no rule.
 ### `createMyelin<A>(config)`
 
 ```typescript
-import { createMyelin } from 'myelin';
+import { createMyelin } from 'myelinate';
 
 const myelin = createMyelin<ActionType>({
   // Required: your LLM function
