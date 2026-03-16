@@ -4,3 +4,6 @@ dist/
 *.jsonl
 myelin-rules.json
 .tmp-test/
+logs/
+myelin-cache.json
+package-lock.json
