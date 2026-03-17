@@ -117,6 +117,8 @@ export interface MyelinConfig<A extends string = DefaultAction> {
     minOccurrences?: number;
     /** Minimum consistency ratio (default: 0.95) */
     minConsistency?: number;
+    /** Decision methods to include in crystallization analysis (default: ['llm']) */
+    methods?: Method[];
   };
 }
 

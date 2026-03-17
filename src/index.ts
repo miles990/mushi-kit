@@ -143,6 +143,7 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
   const failOpenAction = config.failOpenAction ?? ('wake' as A);
   const minOccurrences = config.crystallize?.minOccurrences ?? DEFAULT_MIN_OCCURRENCES;
   const minConsistency = config.crystallize?.minConsistency ?? DEFAULT_MIN_CONSISTENCY;
+  const crystallizeMethods = config.crystallize?.methods;
 
   // Load existing rules
   let rules = loadRules(rulesPath) as Rule<A>[];
@@ -267,6 +268,7 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
     const candidates = findCandidates<A>(logs as DecisionLog<A>[], {
       minOccurrences: opts?.minOccurrences ?? minOccurrences,
       minConsistency: opts?.minConsistency ?? minConsistency,
+      methods: crystallizeMethods,
     });
 
     for (const c of candidates) {

@@ -136,10 +136,12 @@ function numericUpperBound(val: number): number {
  */
 export function findCandidates<A extends string>(
   logs: DecisionLog<A>[],
-  opts: { minOccurrences: number; minConsistency: number },
+  opts: { minOccurrences: number; minConsistency: number; methods?: string[] },
 ): CrystallizationCandidate<A>[] {
-  // Only analyze LLM decisions (rules are already crystallized)
-  const llmLogs = logs.filter(l => l.method === 'llm');
+  // Filter by method — defaults to LLM-only (rules are already crystallized)
+  // Use methods option to include 'rule' decisions (e.g., bypass patterns)
+  const allowedMethods = opts.methods ?? ['llm'];
+  const llmLogs = logs.filter(l => allowedMethods.includes(l.method));
 
   // Group by fingerprint
   const groups = new Map<string, DecisionLog<A>[]>();
