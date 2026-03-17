@@ -42,7 +42,7 @@ Proxy options:
   --active                 Active mode — enable response caching
   --min-hits <number>      Consistent hits before caching (default: 3)
   --cache-path <path>      Path to cache file (default: ./myelin-cache.json)
-  --payload-log <path>     Path to full payload log (default: ./myelin-payload.jsonl)
+  --payload-log <path>     Payload log base path (daily rotated, default: ./payload.jsonl)
 
 Common options:
   --rules-path <path>      Path to rules JSON file (default: ./myelin-rules.json)
@@ -67,7 +67,7 @@ function cmdProxy(args: string[]): void {
   const minHits = parseInt(getFlagValue(args, '--min-hits') ?? '3', 10);
   const cachePath = getFlagValue(args, '--cache-path') ?? './myelin-cache.json';
   const logPath = getFlagValue(args, '--log-path') ?? './myelin-proxy.jsonl';
-  const payloadLogPath = getFlagValue(args, '--payload-log') ?? './myelin-payload.jsonl';
+  const payloadLogPath = getFlagValue(args, '--payload-log') ?? './payload.jsonl';
 
   startProxy({ port, target, apiKey, shadow, minHits, cachePath, logPath, payloadLogPath });
 }

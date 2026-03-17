@@ -11,8 +11,8 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
+import { basename, dirname } from 'node:path';
 
 export interface ProxyConfig {
   port: number;
@@ -21,7 +21,7 @@ export interface ProxyConfig {
   shadow?: boolean;
   cachePath?: string;
   logPath?: string;
-  /** Full payload log — request body + response body (default: ./myelin-payload.jsonl) */
+  /** Payload metadata log base path (daily rotated as *-YYYY-MM-DD.jsonl) */
   payloadLogPath?: string;
   /** How many consistent identical responses before serving from cache */
   minHits?: number;
@@ -52,19 +52,19 @@ interface PayloadLog {
   ts: string;
   hash: string;
   source: 'cache' | 'forwarded' | 'shadow';
+  route: string;
+  method: string;
+  status: number;
+  requestBytes: number;
+  responseBytes?: number;
   latencyMs: number;
-  request: {
-    method: string;
-    path: string;
-    model?: string;
-    body: unknown;
+  model?: string;
+  tokenCount?: {
+    input?: number;
+    output?: number;
+    total?: number;
   };
-  response: {
-    status: number;
-    body: unknown;
-    streaming?: boolean;
-    truncated?: boolean;
-  };
+  streaming?: boolean;
   crystallization?: {
     event: 'cache_hit' | 'cache_new' | 'cache_promoted' | 'cache_reset';
     hitCount: number;
@@ -72,18 +72,106 @@ interface PayloadLog {
   };
 }
 
-/** Safely parse JSON, return raw string if not JSON */
-function safeParse(text: string): unknown {
-  try { return JSON.parse(text); } catch { return text; }
+const PAYLOAD_RETENTION_DAYS = 7;
+const PAYLOAD_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const MAX_METADATA_CAPTURE_SIZE = 512 * 1024;
+let lastPayloadCleanupAt = 0;
+
+function getDayStamp(date: Date): string {
+  return date.toISOString().slice(0, 10);
 }
 
-/** Max payload body size to log (2MB) — truncate beyond this */
-const MAX_PAYLOAD_SIZE = 2 * 1024 * 1024;
+function buildDailyPayloadPath(basePath: string, date: Date): string {
+  const dir = dirname(basePath);
+  const file = basename(basePath);
+  const stem = file.endsWith('.jsonl') ? file.slice(0, -'.jsonl'.length) : file;
+  return `${dir}/${stem}-${getDayStamp(date)}.jsonl`;
+}
 
-function logPayload(path: string, entry: PayloadLog): void {
+function parseTokenUsage(payload: unknown): PayloadLog['tokenCount'] | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const usage = (payload as { usage?: unknown }).usage;
+  if (!usage || typeof usage !== 'object') return undefined;
+
+  const raw = usage as Record<string, unknown>;
+  const input = typeof raw.input_tokens === 'number'
+    ? raw.input_tokens
+    : typeof raw.prompt_tokens === 'number'
+      ? raw.prompt_tokens
+      : undefined;
+  const output = typeof raw.output_tokens === 'number'
+    ? raw.output_tokens
+    : typeof raw.completion_tokens === 'number'
+      ? raw.completion_tokens
+      : undefined;
+  const total = typeof raw.total_tokens === 'number'
+    ? raw.total_tokens
+    : input !== undefined || output !== undefined
+      ? (input ?? 0) + (output ?? 0)
+      : undefined;
+
+  if (input === undefined && output === undefined && total === undefined) return undefined;
+  return { input, output, total };
+}
+
+function parseJson(text: string): unknown {
+  try { return JSON.parse(text); } catch { return undefined; }
+}
+
+function parseSseTokenUsageFromBody(text: string): PayloadLog['tokenCount'] | undefined {
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line.startsWith('data:')) continue;
+    const data = line.slice(5).trim();
+    if (!data || data === '[DONE]') continue;
+    const parsed = parseJson(data);
+    const usage = parseTokenUsage(parsed);
+    if (usage) return usage;
+  }
+  return undefined;
+}
+
+function cleanupOldPayloadLogs(basePath: string, now: Date): void {
+  const dir = dirname(basePath);
+  if (!existsSync(dir)) return;
+
+  const file = basename(basePath);
+  const stem = file.endsWith('.jsonl') ? file.slice(0, -'.jsonl'.length) : file;
+  const escapedStem = stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^${escapedStem}-(\\d{4}-\\d{2}-\\d{2})\\.jsonl$`);
+  const cutoff = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() - PAYLOAD_RETENTION_DAYS,
+  ));
+
+  for (const item of readdirSync(dir, { withFileTypes: true })) {
+    if (!item.isFile()) continue;
+    const match = item.name.match(pattern);
+    if (!match) continue;
+    const fileDate = new Date(`${match[1]}T00:00:00.000Z`);
+    if (Number.isNaN(fileDate.getTime())) continue;
+    if (fileDate < cutoff) {
+      try {
+        unlinkSync(`${dir}/${item.name}`);
+      } catch {
+        // fire-and-forget cleanup
+      }
+    }
+  }
+}
+
+function logPayload(basePath: string, entry: PayloadLog): void {
   try {
+    const now = new Date();
+    const path = buildDailyPayloadPath(basePath, now);
     const dir = dirname(path);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    if (Date.now() - lastPayloadCleanupAt > PAYLOAD_CLEANUP_INTERVAL_MS) {
+      cleanupOldPayloadLogs(basePath, now);
+      lastPayloadCleanupAt = Date.now();
+    }
     appendFileSync(path, JSON.stringify(entry) + '\n', 'utf-8');
   } catch {
     // fire-and-forget — payload logging should never break the proxy
@@ -189,9 +277,9 @@ async function forwardStreaming(
   });
   res.writeHead(response.status, fwdHeaders);
 
-  // Pipe the body through, accumulating for payload log
+  // Pipe the body through while keeping a bounded buffer for token metadata extraction.
   const responseChunks: Buffer[] = [];
-  let totalSize = 0;
+  let responseBytes = 0;
   if (response.body) {
     const reader = response.body.getReader();
     try {
@@ -199,9 +287,9 @@ async function forwardStreaming(
         const { done, value } = await reader.read();
         if (done) break;
         res.write(value);
-        if (totalSize < MAX_PAYLOAD_SIZE) {
+        responseBytes += value.length;
+        if (responseBytes <= MAX_METADATA_CAPTURE_SIZE) {
           responseChunks.push(Buffer.from(value));
-          totalSize += value.length;
         }
       }
     } finally {
@@ -223,17 +311,23 @@ async function forwardStreaming(
     model,
   });
 
-  // Full payload log (streaming)
+  // Payload metadata log (streaming)
   if (payloadLogPath) {
     const responseBody = Buffer.concat(responseChunks).toString();
-    const truncated = totalSize >= MAX_PAYLOAD_SIZE;
+    const tokenCount = parseSseTokenUsageFromBody(responseBody);
     logPayload(payloadLogPath, {
       ts: new Date().toISOString(),
       hash,
       source: 'forwarded',
+      route: path,
+      method,
+      status: response.status,
+      requestBytes: Buffer.byteLength(body),
+      responseBytes,
       latencyMs,
-      request: { method, path, model, body: safeParse(body) },
-      response: { status: response.status, body: safeParse(responseBody), streaming: true, truncated },
+      model,
+      tokenCount,
+      streaming: true,
     });
   }
 }
@@ -246,9 +340,13 @@ export function startProxy(config: ProxyConfig): void {
     shadow = true,
     cachePath = './myelin-cache.json',
     logPath = './myelin-proxy.jsonl',
-    payloadLogPath = './myelin-payload.jsonl',
+    payloadLogPath = './payload.jsonl',
     minHits = 3,
   } = config;
+
+  if (payloadLogPath) {
+    cleanupOldPayloadLogs(payloadLogPath, new Date());
+  }
 
   const cache = loadCache(cachePath);
   const stats = { total: 0, cached: 0, forwarded: 0, started: new Date().toISOString() };
@@ -354,17 +452,23 @@ export function startProxy(config: ProxyConfig): void {
         status: cached.statusCode,
       });
 
-      // Full payload log (cache hit — crystallized response)
+      // Payload metadata log (cache hit — crystallized response)
       if (payloadLogPath) {
         let model: string | undefined;
         try { model = JSON.parse(body).model; } catch {}
+        const tokenCount = parseTokenUsage(parseJson(cached.response));
         logPayload(payloadLogPath, {
           ts: new Date().toISOString(),
           hash,
           source: 'cache',
+          route: req.url ?? '/',
+          method: 'POST',
+          status: cached.statusCode,
+          requestBytes: Buffer.byteLength(body),
+          responseBytes: Buffer.byteLength(cached.response),
           latencyMs,
-          request: { method: 'POST', path: req.url ?? '/', model, body: safeParse(body) },
-          response: { status: cached.statusCode, body: safeParse(cached.response) },
+          model,
+          tokenCount,
           crystallization: { event: 'cache_hit', hitCount: cached.hitCount, minHits },
         });
       }
@@ -428,20 +532,21 @@ export function startProxy(config: ProxyConfig): void {
         model,
       });
 
-      // Full payload log (forwarded POST)
+      // Payload metadata log (forwarded POST)
       if (payloadLogPath) {
-        const truncated = response.body.length > MAX_PAYLOAD_SIZE;
+        const tokenCount = parseTokenUsage(parseJson(response.body));
         logPayload(payloadLogPath, {
           ts: new Date().toISOString(),
           hash,
           source,
+          route: req.url ?? '/',
+          method: 'POST',
+          status: response.status,
+          requestBytes: Buffer.byteLength(body),
+          responseBytes: Buffer.byteLength(response.body),
           latencyMs,
-          request: { method: 'POST', path: req.url ?? '/', model, body: safeParse(body) },
-          response: {
-            status: response.status,
-            body: safeParse(truncated ? response.body.slice(0, MAX_PAYLOAD_SIZE) : response.body),
-            truncated,
-          },
+          model,
+          tokenCount,
           crystallization: crystEvent,
         });
       }
@@ -469,7 +574,7 @@ export function startProxy(config: ProxyConfig): void {
         status: 502,
       });
 
-      // Full payload log (error)
+      // Payload metadata log (error)
       if (payloadLogPath) {
         let model: string | undefined;
         try { model = JSON.parse(body).model; } catch {}
@@ -477,9 +582,12 @@ export function startProxy(config: ProxyConfig): void {
           ts: new Date().toISOString(),
           hash,
           source: 'forwarded',
+          route: req.url ?? '/',
+          method: 'POST',
+          status: 502,
+          requestBytes: Buffer.byteLength(body),
           latencyMs: errLatencyMs,
-          request: { method: 'POST', path: req.url ?? '/', model, body: safeParse(body) },
-          response: { status: 502, body: { error: 'proxy_error', message: String(err) } },
+          model,
         });
       }
     }
@@ -494,7 +602,7 @@ Target:     ${target}
 Mode:       ${shadow ? 'shadow (log only, no interception)' : 'active (caching enabled)'}
 Cache:      ${cachePath} (${cache.size} entries)
 Log:        ${logPath}
-Payload:    ${payloadLogPath} (full request/response bodies)
+Payload:    ${payloadLogPath} (daily rotated metadata log, 7-day retention)
 Min hits:   ${minHits} (consistent responses before serving from cache)
 
 Usage:
