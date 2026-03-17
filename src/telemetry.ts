@@ -18,14 +18,15 @@ export function logDecision(
   method: Method,
   latencyMs: number,
 ): void {
-  const entry = {
+  const entry: Record<string, unknown> = {
+    _type: 'decision',
     ts: new Date().toISOString(),
     event,
     action,
     reason,
     method,
     latencyMs,
-  } satisfies DecisionLog<string>;
+  };
 
   try {
     const dir = dirname(path);
@@ -36,14 +37,25 @@ export function logDecision(
   }
 }
 
-/** Read all decision logs from a JSONL file */
+/** Read all decision logs from a JSONL file (filters out crystallization events) */
 export function readDecisionLog(path: string): DecisionLog<string>[] {
   if (!existsSync(path)) return [];
   try {
     const lines = readFileSync(path, 'utf-8').trim().split('\n');
     return lines
       .filter(line => line.length > 0)
-      .map(line => JSON.parse(line) as DecisionLog);
+      .map(line => {
+        try { return JSON.parse(line); } catch { return null; }
+      })
+      .filter((entry): entry is DecisionLog<string> => {
+        if (!entry) return false;
+        // Filter out crystallization events (which have string 'event' field)
+        if (typeof entry.event === 'string') return false;
+        // Also filter by _type discriminator if present
+        if ('_type' in entry && (entry as Record<string, unknown>)._type !== 'decision') return false;
+        // Must have method and action fields
+        return typeof entry.method === 'string' && typeof entry.action === 'string';
+      });
   } catch {
     return [];
   }
@@ -59,6 +71,7 @@ export type CrystallizationEvent = 'candidate_found' | 'rule_crystallized' | 'ru
 
 interface CrystallizationLog {
   ts: string;
+  _type: 'crystallization';
   event: CrystallizationEvent;
   [key: string]: unknown;
 }
@@ -67,9 +80,10 @@ interface CrystallizationLog {
 export function logCrystallization(
   path: string,
   event: CrystallizationEvent,
-  details: Omit<CrystallizationLog, 'ts' | 'event'>,
+  details: Omit<CrystallizationLog, 'ts' | 'event' | '_type'>,
 ): void {
   const entry: CrystallizationLog = {
+    _type: 'crystallization',
     ts: new Date().toISOString(),
     event,
     ...details,

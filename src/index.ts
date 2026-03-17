@@ -167,6 +167,10 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
   let lastDistillDecisionCount = 0;
   let lastDistillTimestamp = Date.now();
 
+  // Hit persistence: batch save every N rule hits to avoid excessive I/O
+  const hitSaveInterval = config.persistEveryNHits ?? 10;
+  let hitsSinceLastSave = 0;
+
   async function triage(event: TriageEvent): Promise<TriageResult<A>> {
     const start = Date.now();
     totalDecisions++;
@@ -175,6 +179,7 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
     const matchedRule = findMatchingRule(event, rules);
     if (matchedRule) {
       matchedRule.hitCount++;
+      hitsSinceLastSave++;
       const latencyMs = Date.now() - start;
       ruleDecisions++;
       ruleLatencySum += latencyMs;
@@ -189,6 +194,12 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
 
       if (autoLog) {
         logDecision(logPath, event, result.action, result.reason, 'rule', latencyMs);
+      }
+
+      // Batch-persist hit counts to avoid writing on every single triage
+      if (hitSaveInterval > 0 && hitsSinceLastSave >= hitSaveInterval) {
+        saveRules(rulesPath, rules);
+        hitsSinceLastSave = 0;
       }
 
       return result;
@@ -432,6 +443,12 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
 
     // Layer 3: extract methodology from templates
     const methodology = extractMethodology(templates, rules);
+
+    // Always persist hit counts during distill (natural checkpoint)
+    if (hitsSinceLastSave > 0) {
+      saveRules(rulesPath, rules);
+      hitsSinceLastSave = 0;
+    }
 
     logCrystallization(logPath, 'distill_complete', {
       rules: rules.length,
@@ -697,6 +714,14 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
     return lines.join('\n');
   }
 
+  /** Persist current rule state (including hitCounts) to disk. */
+  function persistRules(): void {
+    if (hitsSinceLastSave > 0) {
+      saveRules(rulesPath, rules);
+      hitsSinceLastSave = 0;
+    }
+  }
+
   return {
     process: triage,
     triage,
@@ -719,5 +744,6 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
     crystallizeEpisodes,
     maybeDistill,
     toSmallModelPrompt,
+    persistRules,
   };
 }

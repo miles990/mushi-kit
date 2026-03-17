@@ -120,6 +120,8 @@ export interface MyelinConfig<A extends string = DefaultAction> {
     /** Decision methods to include in crystallization analysis (default: ['llm']) */
     methods?: Method[];
   };
+  /** Auto-persist rule hitCounts to disk every N rule hits (default: 0 = disabled) */
+  persistEveryNHits?: number;
 }
 
 /** The myelin instance */
@@ -166,6 +168,8 @@ export interface Myelin<A extends string = DefaultAction> {
   maybeDistill: (opts?: { minNewDecisions?: number; minIntervalMs?: number }) => DistillResult<A> | null;
   /** Format methodology for small/fast models (shorter, structured) */
   toSmallModelPrompt: () => string;
+  /** Persist current rule state (including hitCounts) to disk */
+  persistRules: () => void;
 }
 
 /** Statistics about the myelin instance */
