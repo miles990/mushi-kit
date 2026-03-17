@@ -389,6 +389,7 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
     const standardCandidates = findCandidates<A>(logs as DecisionLog<A>[], {
       minOccurrences,
       minConsistency,
+      methods: crystallizeMethods,
     });
 
     // Second pass: methodology-aware thresholds (find patterns standard pass missed)
@@ -396,6 +397,7 @@ export function createMyelin<A extends string = DefaultAction>(config: MyelinCon
       ? findCandidates<A>(logs as DecisionLog<A>[], {
           minOccurrences: Math.max(3, Math.round(minOccurrences * 0.5)),
           minConsistency,
+          methods: crystallizeMethods,
         }).filter(c => {
           // Only accept sub-threshold candidates that strongly align with methodology
           const alignment = scoreAlignment(c, currentMethodology);
